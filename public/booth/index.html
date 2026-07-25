@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="카메라로 촬영한 내 모습을 파리 에펠탑 배경에 합성하고 저장·공유하는 브라우저 포토부스"
+    />
+    <meta name="theme-color" content="#f3ede3" />
+    <title>오늘, 파리 — 인생사진 포토부스</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#studio">촬영 스튜디오로 바로가기</a>
+
+    <header class="site-header">
+      <a class="brand" href="#" aria-label="오늘, 파리 홈">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" role="img">
+            <path d="M20 5.5 11 34.5M20 5.5l9 29M14.4 23h11.2M10 34.5h20M16.4 16h7.2" />
+          </svg>
+        </span>
+        <span>
+          <strong>오늘, 파리</strong>
+          <small>VIE EN PHOTO</small>
+        </span>
+      </a>
+      <div class="header-note">
+        <span class="status-dot" aria-hidden="true"></span>
+        사진은 이 기기 안에서만 처리돼요
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="intro-panel" aria-labelledby="intro-title">
+        <p class="eyebrow"><span>PARIS PHOTO BOOTH</span><span>ÉDITION 01</span></p>
+        <h1 id="intro-title">오늘의 배경은,<br /><em>파리.</em></h1>
+        <p class="intro-copy">
+          에펠탑을 등지고 자전거가 스쳐 가는 아침. 카메라만 켜면 그 장면 속에 내가
+          자연스럽게 들어갑니다.
+        </p>
+
+        <div class="quick-start">
+          <button class="button button-primary button-large" id="heroCameraButton" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6H8l1.1-1.5h5.8L16 6h1.5A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-8Z" />
+              <circle cx="12" cy="12.5" r="3.3" />
+            </svg>
+            카메라로 시작
+          </button>
+          <button class="button button-ghost button-large" id="heroUploadButton" type="button">
+            사진 불러오기
+          </button>
+        </div>
+
+        <ul class="feature-list" aria-label="주요 특징">
+          <li>
+            <span class="feature-number">01</span>
+            <span><strong>AI 인물 분리</strong><small>배경만 자연스럽게 교체</small></span>
+          </li>
+          <li>
+            <span class="feature-number">02</span>
+            <span><strong>4:5 인생사진</strong><small>피드에 바로 쓰는 비율</small></span>
+          </li>
+          <li>
+            <span class="feature-number">03</span>
+            <span><strong>한 번에 공유</strong><small>카카오톡·메일·문자 앱</small></span>
+          </li>
+        </ul>
+
+        <div class="privacy-card">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M7 10V7a5 5 0 0 1 10 0v3M6 10h12v10H6z" />
+          </svg>
+          <p>
+            <strong>사진은 서버에 올라가지 않아요.</strong>
+            촬영·합성은 브라우저에서 처리되며, 사용자가 저장하거나 공유할 때만 기기 밖으로
+            이동합니다.
+          </p>
+        </div>
+      </section>
+
+      <section class="studio-panel" id="studio" aria-labelledby="studio-title">
+        <div class="studio-heading">
+          <div>
+            <p class="section-kicker">YOUR MOMENT IN PARIS</p>
+            <h2 id="studio-title">장면을 고르고, 포즈를 잡아보세요</h2>
+          </div>
+          <div class="step-indicator" aria-label="현재 단계">
+            <span class="is-active">1</span><i></i><span>2</span><i></i><span>3</span>
+          </div>
+        </div>
+
+        <div class="camera-card">
+          <div class="camera-toolbar">
+            <div class="ai-status" id="aiStatus" role="status">
+              <span class="ai-status-dot"></span>
+              <span>인물 분리 준비</span>
+            </div>
+            <div class="toolbar-actions">
+              <button class="icon-button" id="mirrorButton" type="button" aria-label="좌우 반전" aria-pressed="true">
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M8 5 3 12l5 7M16 5l5 7-5 7M12 4v16" />
+                </svg>
+              </button>
+              <button class="icon-button" id="switchCameraButton" type="button" aria-label="전후면 카메라 전환" disabled>
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M20 7v5h-5M4 17v-5h5M6.1 8.5A7 7 0 0 1 18 7l2 2M17.9 15.5A7 7 0 0 1 6 17l-2-2" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="camera-stage" id="cameraStage">
+            <canvas id="previewCanvas" width="720" height="900" aria-label="촬영 미리보기"></canvas>
+            <video id="cameraVideo" autoplay muted playsinline aria-hidden="true"></video>
+            <img id="portraitSource" alt="" aria-hidden="true" />
+
+            <div class="stage-vignette" aria-hidden="true"></div>
+            <div class="pose-guide" id="poseGuide" aria-hidden="true">
+              <svg viewBox="0 0 240 420">
+                <ellipse cx="120" cy="75" rx="42" ry="52" />
+                <path d="M80 135c-22 37-30 100-24 177M160 135c22 37 30 100 24 177M82 139c20 21 56 21 76 0M69 312l-16 90M171 312l16 90" />
+              </svg>
+              <span>실루엣 안에 서면 더 자연스러워요</span>
+            </div>
+
+            <div class="empty-state" id="emptyState">
+              <span class="empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 32 32">
+                  <path d="M5 11.5A3.5 3.5 0 0 1 8.5 8H11l1.5-2h7L21 8h2.5a3.5 3.5 0 0 1 3.5 3.5v11a3.5 3.5 0 0 1-3.5 3.5h-15A3.5 3.5 0 0 1 5 22.5v-11Z" />
+                  <circle cx="16" cy="17" r="5" />
+                </svg>
+              </span>
+              <strong>파리에서의 한 컷을 준비했어요</strong>
+              <p>카메라 영상은 외부로 전송되지 않습니다.</p>
+              <div class="empty-actions">
+                <button class="button button-light" id="stageCameraButton" type="button">카메라 켜기</button>
+                <button class="text-button" id="stageUploadButton" type="button">사진 불러오기</button>
+              </div>
+            </div>
+
+            <div class="countdown" id="countdown" aria-live="assertive"></div>
+            <div class="flash" id="flash" aria-hidden="true"></div>
+            <div class="camera-message" id="cameraMessage" role="alert" hidden></div>
+
+            <div class="location-tag" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 21s6-5.3 6-11a6 6 0 1 0-12 0c0 5.7 6 11 6 11Z" />
+                <circle cx="12" cy="10" r="2" />
+              </svg>
+              PARIS · 07:42
+            </div>
+          </div>
+
+          <div class="shutter-bar">
+            <label class="timer-control">
+              <span>타이머</span>
+              <select id="timerSelect" aria-label="촬영 타이머">
+                <option value="0">바로</option>
+                <option value="3" selected>3초</option>
+                <option value="5">5초</option>
+              </select>
+            </label>
+            <button class="shutter-button" id="captureButton" type="button" aria-label="사진 촬영" disabled>
+              <span></span>
+            </button>
+            <button class="upload-shortcut" id="uploadShortcut" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M4 5h16v14H4zM7 15l3-3 2.5 2.5L15 12l3 3M8 9h.01" />
+              </svg>
+              사진
+            </button>
+          </div>
+        </div>
+
+        <div class="control-section">
+          <div class="control-heading">
+            <div>
+              <span class="control-number">01</span>
+              <h3>배경 선택</h3>
+            </div>
+            <p>다른 분위기의 파리 또는 내 배경을 골라보세요.</p>
+          </div>
+          <div class="background-grid" id="backgroundGrid">
+            <button class="background-option is-selected" type="button" data-tone="golden" aria-pressed="true">
+              <span class="background-thumb tone-golden">
+                <img src="./assets/backgrounds/paris-golden-hour.png" alt="" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <span><strong>골든 파리</strong><small>Golden hour</small></span>
+            </button>
+            <button class="background-option" type="button" data-tone="film" aria-pressed="false">
+              <span class="background-thumb tone-film">
+                <img src="./assets/backgrounds/paris-golden-hour.png" alt="" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <span><strong>파리 필름</strong><small>Soft analog</small></span>
+            </button>
+            <button class="background-option" type="button" data-tone="rose" aria-pressed="false">
+              <span class="background-thumb tone-rose">
+                <img src="./assets/backgrounds/paris-golden-hour.png" alt="" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <span><strong>로즈 마탱</strong><small>Rosy morning</small></span>
+            </button>
+            <button class="background-option background-upload" id="backgroundUploadButton" type="button">
+              <span class="background-thumb">
+                <svg aria-hidden="true" viewBox="0 0 32 32">
+                  <path d="M16 6v20M6 16h20" />
+                </svg>
+              </span>
+              <span><strong>내 배경</strong><small>Upload</small></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="control-section looks-section">
+          <div class="control-heading">
+            <div>
+              <span class="control-number">02</span>
+              <h3>인생사진 무드</h3>
+            </div>
+            <p>인물과 배경의 색감을 한 번에 맞춰요.</p>
+          </div>
+          <div class="look-controls" id="lookControls">
+            <button class="look-option is-selected" type="button" data-look="natural" aria-pressed="true">
+              <span class="look-swatch swatch-natural"></span>
+              <span><strong>내추럴</strong><small>깨끗하고 선명하게</small></span>
+            </button>
+            <button class="look-option" type="button" data-look="paris-film" aria-pressed="false">
+              <span class="look-swatch swatch-film"></span>
+              <span><strong>파리 필름</strong><small>부드러운 아날로그 톤</small></span>
+            </button>
+            <button class="look-option" type="button" data-look="lumiere" aria-pressed="false">
+              <span class="look-swatch swatch-lumiere"></span>
+              <span><strong>뤼미에르</strong><small>따뜻하고 화사하게</small></span>
+            </button>
+          </div>
+          <div class="realism-tuning" aria-label="인물 합성 미세 조정">
+            <label>
+              <span><strong>인물 크기</strong><output id="personScaleValue">90%</output></span>
+              <input id="personScale" type="range" min="72" max="116" value="90" />
+            </label>
+            <label>
+              <span><strong>인물 높이</strong><output id="personHeightValue">0</output></span>
+              <input id="personHeight" type="range" min="-12" max="12" value="0" />
+            </label>
+            <label>
+              <span><strong>바닥 그림자</strong><output id="shadowValue">55%</output></span>
+              <input id="shadowStrength" type="range" min="0" max="100" value="55" />
+            </label>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <section class="how-it-works" aria-labelledby="how-title">
+      <p class="section-kicker">THREE LITTLE STEPS</p>
+      <h2 id="how-title">파리까지, 세 번의 탭</h2>
+      <ol>
+        <li><span>01</span><strong>배경 고르기</strong><p>파리 무드나 내 사진을 배경으로 선택해요.</p></li>
+        <li><span>02</span><strong>포즈 & 촬영</strong><p>AI가 인물을 분리해 장면 안에 자연스럽게 놓아요.</p></li>
+        <li><span>03</span><strong>저장 & 공유</strong><p>완성 사진을 저장하거나 원하는 앱으로 바로 공유해요.</p></li>
+      </ol>
+    </section>
+
+    <footer class="site-footer">
+      <span>오늘, 파리</span>
+      <p>브라우저에서 만드는 나만의 여행 사진 · 얼굴 인식이나 서버 저장을 하지 않습니다.</p>
+    </footer>
+
+    <input id="portraitUpload" type="file" accept="image/*" hidden />
+    <input id="backgroundUpload" type="file" accept="image/*" hidden />
+
+    <dialog class="result-dialog" id="resultDialog">
+      <div class="dialog-shell">
+        <button class="dialog-close" id="resultCloseButton" type="button" aria-label="결과 창 닫기">×</button>
+        <section class="result-visual">
+          <p class="section-kicker">BONJOUR, YOUR BEST SHOT</p>
+          <div class="result-frame">
+            <img id="resultImage" alt="완성된 파리 인생사진" />
+            <span>PARIS · UN BEAU JOUR</span>
+          </div>
+        </section>
+        <section class="result-actions">
+          <p class="result-overline">YOUR PHOTO IS READY</p>
+          <h2>이 순간을<br />간직해 볼까요?</h2>
+          <p class="result-copy">
+            사진은 아직 이 기기 안에만 있어요. 저장하거나 공유할 방법을 선택해 주세요.
+          </p>
+          <div class="primary-result-actions">
+            <button class="button button-primary button-wide" id="shareButton" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <circle cx="18" cy="5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="19" r="2.5" />
+                <path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" />
+              </svg>
+              카카오톡·메일·문자로 공유
+            </button>
+            <button class="button button-outline button-wide" id="downloadButton" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M12 4v11M8 11l4 4 4-4M5 19h14" />
+              </svg>
+              사진 저장
+            </button>
+          </div>
+
+          <div class="direct-share">
+            <p><strong>받는 사람 앱 바로 열기</strong><span>사진을 저장한 뒤 작성 화면을 열어요.</span></p>
+            <div class="share-field">
+              <label for="emailInput">이메일</label>
+              <div>
+                <input id="emailInput" type="email" inputmode="email" placeholder="name@example.com" autocomplete="email" />
+                <button id="emailButton" type="button">메일 앱 열기</button>
+              </div>
+            </div>
+            <div class="share-field">
+              <label for="phoneInput">휴대폰 번호</label>
+              <div>
+                <input id="phoneInput" type="tel" inputmode="tel" placeholder="010-0000-0000" autocomplete="tel" />
+                <button id="smsButton" type="button">문자 앱 열기</button>
+              </div>
+            </div>
+            <small>
+              브라우저 보안상 메일·문자 앱에는 사진이 자동 첨부되지 않을 수 있어요. 이 경우 방금
+              저장된 사진을 직접 첨부해 주세요.
+            </small>
+          </div>
+
+          <button class="retake-button" id="retakeButton" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M4 8v5h5M20 16v-5h-5M6.2 15.5A7 7 0 0 0 18 17l2-2M17.8 8.5A7 7 0 0 0 6 7L4 9" />
+            </svg>
+            다시 촬영하기
+          </button>
+        </section>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
