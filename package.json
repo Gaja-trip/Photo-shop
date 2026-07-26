@@ -8,9 +8,9 @@
   },
   "scripts": {
     "dev": "vinext dev",
-    "build": "node --check public/booth/src/app.js && vinext build",
+    "build": "node --check public/app.js && vinext build",
     "start": "vinext start",
-    "check": "node --check public/booth/src/app.js"
+    "check": "node --check public/app.js"
   },
   "dependencies": {
     "next": "16.2.6",

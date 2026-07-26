@@ -15,13 +15,16 @@ const mirrorButton = byId("mirrorButton");
 const countdownElement = byId("countdown");
 const flashElement = byId("flash");
 const cameraMessage = byId("cameraMessage");
+const cameraSelect = byId("cameraSelect");
+const refreshCamerasButton = byId("refreshCamerasButton");
+const cameraDeviceStatus = byId("cameraDeviceStatus");
 const portraitUpload = byId("portraitUpload");
 const backgroundUpload = byId("backgroundUpload");
 const resultDialog = byId("resultDialog");
 const resultImage = byId("resultImage");
 const toast = byId("toast");
 
-const DEFAULT_BACKGROUND_PATH = "./assets/backgrounds/paris-golden-hour.png";
+const DEFAULT_BACKGROUND_PATH = "/paris-golden-hour.png";
 const MEDIAPIPE_VERSION = "0.10.35";
 const MEDIAPIPE_MODULE =
   `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/vision_bundle.mjs`;
@@ -53,6 +56,8 @@ const state = {
   sourceType: null,
   portraitUrl: "",
   stream: null,
+  cameraDevices: [],
+  selectedCameraId: "",
   facingMode: "user",
   mirror: true,
   segmenter: null,
@@ -739,7 +744,7 @@ async function loadSegmenter() {
 
   state.segmenterPromise = (async () => {
     try {
-      const visionTasks = await import(MEDIAPIPE_MODULE);
+      const visionTasks = await import(/* @vite-ignore */ MEDIAPIPE_MODULE);
       const vision = await visionTasks.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM);
       state.visionTasks = visionTasks;
       state.visionFiles = vision;
@@ -888,6 +893,7 @@ function stopCamera({ invalidatePending = true } = {}) {
   state.stream = null;
   cameraVideo.srcObject = null;
   switchCameraButton.disabled = true;
+  cameraSelect.disabled = true;
 }
 
 function showCameraMessage(message) {
@@ -895,12 +901,103 @@ function showCameraMessage(message) {
   cameraMessage.hidden = !message;
 }
 
+function getCameraLabel(device, index) {
+  return device.label.trim() || `카메라 ${index + 1}`;
+}
+
+function isExternalCameraLabel(label) {
+  return /gopro|cam\s?link|capture|usb|external|외장|캡처/i.test(label);
+}
+
+async function refreshCameraDevices({ announce = false } = {}) {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    cameraSelect.disabled = true;
+    refreshCamerasButton.disabled = true;
+    cameraDeviceStatus.textContent = "이 브라우저에서는 카메라 목록을 불러올 수 없어요.";
+    return [];
+  }
+
+  try {
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+      (device) => device.kind === "videoinput",
+    );
+    state.cameraDevices = devices;
+
+    const activeDeviceId =
+      state.stream?.getVideoTracks()[0]?.getSettings?.().deviceId ||
+      state.selectedCameraId;
+    const fragment = document.createDocumentFragment();
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "시스템 기본 카메라";
+    fragment.append(defaultOption);
+
+    devices.forEach((device, index) => {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = getCameraLabel(device, index);
+      fragment.append(option);
+    });
+    cameraSelect.replaceChildren(fragment);
+
+    const activeDevice = devices.find(
+      (device) => device.deviceId && device.deviceId === activeDeviceId,
+    );
+    if (activeDevice) {
+      state.selectedCameraId = activeDevice.deviceId;
+      cameraSelect.value = activeDevice.deviceId;
+    } else if (
+      state.selectedCameraId &&
+      !devices.some((device) => device.deviceId === state.selectedCameraId)
+    ) {
+      state.selectedCameraId = "";
+      cameraSelect.value = "";
+    }
+
+    cameraSelect.disabled = state.captureInProgress || devices.length === 0;
+    refreshCamerasButton.disabled = state.captureInProgress;
+    switchCameraButton.disabled =
+      state.captureInProgress || (!state.stream && devices.length < 2);
+
+    const selectedDevice = devices.find(
+      (device) => device.deviceId === state.selectedCameraId,
+    );
+    if (selectedDevice) {
+      const selectedIndex = devices.indexOf(selectedDevice);
+      const selectedLabel = getCameraLabel(selectedDevice, selectedIndex);
+      const isExternal = isExternalCameraLabel(selectedLabel);
+      cameraDeviceStatus.textContent = `${selectedLabel} 연결됨${
+        isExternal ? " · 외장 카메라" : ""
+      }`;
+      cameraDeviceStatus.classList.toggle("is-external", isExternal);
+    } else {
+      cameraDeviceStatus.textContent = devices.length
+        ? `${devices.length}개의 카메라를 찾았어요.`
+        : "연결된 카메라를 찾지 못했어요.";
+      cameraDeviceStatus.classList.remove("is-external");
+    }
+
+    if (announce) {
+      showToast(
+        devices.length
+          ? `${devices.length}개의 카메라를 확인했어요.`
+          : "연결된 카메라를 찾지 못했어요.",
+      );
+    }
+    return devices;
+  } catch {
+    cameraSelect.disabled = true;
+    cameraDeviceStatus.textContent = "카메라 목록을 새로 불러오지 못했어요.";
+    return [];
+  }
+}
+
 function getCameraErrorMessage(error) {
   const messages = {
     NotAllowedError:
       "카메라 권한이 꺼져 있어요. 브라우저 설정에서 허용하거나 ‘사진 불러오기’를 이용해 주세요.",
     NotFoundError:
-      "사용할 수 있는 카메라를 찾지 못했어요. 대신 기기에 있는 사진을 불러올 수 있어요.",
+      "사용할 수 있는 카메라를 찾지 못했어요. 외장 카메라 연결을 확인하거나 사진을 불러와 주세요.",
     NotReadableError:
       "다른 앱이 카메라를 사용 중인 것 같아요. 다른 앱을 닫고 다시 시도해 주세요.",
     OverconstrainedError:
@@ -911,7 +1008,7 @@ function getCameraErrorMessage(error) {
   return messages[error?.name] || "카메라를 시작하지 못했어요. 사진 불러오기로 계속할 수 있어요.";
 }
 
-async function startCamera() {
+async function startCamera({ allowDeviceFallback = true } = {}) {
   if (state.captureInProgress) return;
   if (!navigator.mediaDevices?.getUserMedia) {
     showCameraMessage("이 브라우저에서는 카메라 촬영을 지원하지 않아요. 사진 불러오기를 이용해 주세요.");
@@ -921,20 +1018,26 @@ async function startCamera() {
 
   showCameraMessage("");
   captureButton.disabled = true;
+  cameraSelect.disabled = true;
+  refreshCamerasButton.disabled = true;
   updateAiStatus("loading", "카메라 연결 중");
   const requestId = state.cameraRequestId + 1;
   state.cameraRequestId = requestId;
   stopCamera({ invalidatePending: false });
+  const requestedDeviceId = state.selectedCameraId;
 
   try {
+    const videoConstraints = {
+      width: { ideal: 1280 },
+      height: { ideal: 960 },
+      aspectRatio: { ideal: 4 / 3 },
+      ...(requestedDeviceId
+        ? { deviceId: { exact: requestedDeviceId } }
+        : { facingMode: { ideal: state.facingMode } }),
+    };
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
-      video: {
-        facingMode: { ideal: state.facingMode },
-        width: { ideal: 1280 },
-        height: { ideal: 960 },
-        aspectRatio: { ideal: 4 / 3 },
-      },
+      video: videoConstraints,
     });
 
     if (requestId !== state.cameraRequestId) {
@@ -953,11 +1056,38 @@ async function startCamera() {
     });
     await cameraVideo.play();
 
-    const actualFacingMode = stream.getVideoTracks()[0]?.getSettings?.().facingMode;
+    const videoTrack = stream.getVideoTracks()[0];
+    const trackSettings = videoTrack?.getSettings?.() || {};
+    const actualFacingMode = trackSettings.facingMode;
+    if (trackSettings.deviceId) {
+      state.selectedCameraId = trackSettings.deviceId;
+    }
     if (actualFacingMode) {
       state.facingMode = actualFacingMode;
       state.mirror = actualFacingMode === "user";
+    } else if (requestedDeviceId) {
+      state.mirror = false;
     }
+    videoTrack?.addEventListener(
+      "ended",
+      () => {
+        if (state.stream?.getVideoTracks()[0] !== videoTrack) return;
+        state.stream = null;
+        cameraVideo.srcObject = null;
+        state.sourceType = null;
+        state.maskAvailable = false;
+        state.personBounds = null;
+        cameraStage.classList.remove("has-source");
+        captureButton.disabled = true;
+        switchCameraButton.disabled = true;
+        showCameraMessage(
+          "카메라 연결이 끊겼어요. 케이블이나 웹캠 모드를 확인한 뒤 ‘다시 찾기’를 눌러 주세요.",
+        );
+        updateAiStatus("fallback", "카메라 다시 연결 필요");
+        refreshCameraDevices();
+      },
+      { once: true },
+    );
     state.sourceType = "video";
     state.sourceWasCamera = true;
     state.cameraPausedAfterCapture = false;
@@ -966,10 +1096,10 @@ async function startCamera() {
     state.staticMaskRequested = false;
     state.lastVideoTime = -1;
     cameraStage.classList.add("has-source");
-    switchCameraButton.disabled = false;
     mirrorButton.disabled = false;
     mirrorButton.setAttribute("aria-pressed", String(state.mirror));
     updateAiStatus("loading", "AI 인물 분리 준비 중");
+    await refreshCameraDevices();
 
     loadSegmenter().then(() => {
       if (!state.segmenter) {
@@ -979,8 +1109,24 @@ async function startCamera() {
     });
   } catch (error) {
     if (requestId !== state.cameraRequestId) return;
+    if (
+      requestedDeviceId &&
+      allowDeviceFallback &&
+      ["NotFoundError", "OverconstrainedError"].includes(error?.name)
+    ) {
+      state.selectedCameraId = "";
+      showToast("선택한 카메라를 찾지 못해 기본 카메라로 다시 연결해요.");
+      await refreshCameraDevices();
+      return startCamera({ allowDeviceFallback: false });
+    }
     showCameraMessage(getCameraErrorMessage(error));
     updateAiStatus("fallback", "사진 불러오기 사용 가능");
+    refreshCamerasButton.disabled = false;
+    cameraSelect.disabled = state.cameraDevices.length === 0;
+    if (state.sourceType === "video") {
+      state.sourceType = null;
+      cameraStage.classList.remove("has-source");
+    }
     if (state.sourceType === "image" && getSource()) {
       updateCaptureReadiness();
     } else {
@@ -991,10 +1137,37 @@ async function startCamera() {
 
 async function switchCamera() {
   if (state.captureInProgress) return;
+  const devices = await refreshCameraDevices();
+  if (devices.length > 1) {
+    const currentIndex = devices.findIndex(
+      (device) => device.deviceId === state.selectedCameraId,
+    );
+    const nextDevice = devices[(currentIndex + 1 + devices.length) % devices.length];
+    state.selectedCameraId = nextDevice.deviceId;
+    await startCamera();
+    return;
+  }
+
+  state.selectedCameraId = "";
   state.facingMode = state.facingMode === "user" ? "environment" : "user";
   state.mirror = state.facingMode === "user";
   mirrorButton.setAttribute("aria-pressed", String(state.mirror));
   await startCamera();
+}
+
+async function selectCameraDevice(event) {
+  if (state.captureInProgress) return;
+  state.selectedCameraId = event.target.value;
+  await startCamera();
+}
+
+async function refreshConnectedCameras() {
+  if (state.captureInProgress) return;
+  if (!state.stream) {
+    await startCamera();
+    return;
+  }
+  await refreshCameraDevices({ announce: true });
 }
 
 function toggleMirror() {
@@ -1187,7 +1360,7 @@ async function runCountdown(seconds) {
 function setStudioControlsLocked(locked) {
   document
     .querySelectorAll(
-      ".background-option, .look-option, .realism-tuning input, #timerSelect, #uploadShortcut, #mirrorButton, #switchCameraButton",
+      ".background-option, .look-option, .realism-tuning input, #timerSelect, #uploadShortcut, #mirrorButton, #switchCameraButton, #cameraSelect, #refreshCamerasButton",
     )
     .forEach((control) => {
       control.disabled = locked;
@@ -1443,7 +1616,7 @@ async function prepareRetake() {
 function bindControls() {
   bindRealismControls();
   [byId("heroCameraButton"), byId("stageCameraButton")].forEach((button) => {
-    button.addEventListener("click", startCamera);
+    button.addEventListener("click", () => startCamera());
   });
 
   [
@@ -1478,6 +1651,8 @@ function bindControls() {
   });
 
   switchCameraButton.addEventListener("click", switchCamera);
+  cameraSelect.addEventListener("change", selectCameraDevice);
+  refreshCamerasButton.addEventListener("click", refreshConnectedCameras);
   mirrorButton.addEventListener("click", toggleMirror);
   captureButton.addEventListener("click", takePhoto);
   byId("downloadButton").addEventListener("click", () => downloadPhoto());
@@ -1510,6 +1685,17 @@ function bindControls() {
       showToast("화면으로 돌아왔어요. 카메라를 다시 켜 주세요.");
     }
   });
+  navigator.mediaDevices?.addEventListener?.("devicechange", async () => {
+    const previousCount = state.cameraDevices.length;
+    const devices = await refreshCameraDevices();
+    if (devices.length !== previousCount) {
+      showToast(
+        devices.length > previousCount
+          ? "새 카메라를 찾았어요. 촬영 카메라 목록에서 선택해 주세요."
+          : "카메라 연결 상태가 변경됐어요.",
+      );
+    }
+  });
   window.addEventListener("beforeunload", () => {
     stopCamera();
     window.cancelAnimationFrame(state.renderHandle);
@@ -1526,6 +1712,7 @@ function bindControls() {
 
 async function initialize() {
   bindControls();
+  await refreshCameraDevices();
   try {
     await waitForImage(defaultBackground);
   } catch {

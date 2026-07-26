@@ -424,6 +424,91 @@ a:focus-visible {
   color: rgba(255, 255, 255, 0.8);
 }
 
+.camera-source-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 10px;
+  align-items: end;
+  margin: 0 12px 10px;
+  padding: 11px 12px;
+  color: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.camera-device-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  min-width: 0;
+}
+
+.camera-device-control > span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.camera-device-control select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 32px 0 11px;
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 9px;
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, white 50%) calc(100% - 14px) 48% / 4px 4px no-repeat,
+    linear-gradient(135deg, white 50%, transparent 50%) calc(100% - 10px) 48% / 4px 4px no-repeat,
+    rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+.camera-device-control select:disabled {
+  opacity: 0.5;
+}
+
+.camera-device-control option {
+  color: var(--ink);
+}
+
+.camera-refresh-button {
+  height: 34px;
+  padding: 0 12px;
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9px;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.camera-refresh-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.camera-device-status {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-size: 9px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.camera-device-status.is-external {
+  color: #b9ddb8;
+}
+
 .ai-status {
   display: flex;
   gap: 8px;
@@ -787,6 +872,30 @@ a:focus-visible {
 
 .timer-control option {
   color: var(--ink);
+}
+
+.external-camera-help {
+  margin: 0 18px 16px;
+  color: rgba(255, 255, 255, 0.68);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.external-camera-help summary {
+  padding: 13px 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.external-camera-help p {
+  max-width: 620px;
+  margin: 6px 0 4px;
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+.external-camera-help strong {
+  color: white;
 }
 
 .shutter-button {
@@ -1651,6 +1760,25 @@ a:focus-visible {
 
   .camera-toolbar {
     height: 52px;
+  }
+
+  .camera-source-bar {
+    grid-template-columns: 1fr auto;
+    margin: 0 9px 8px;
+    padding: 9px;
+  }
+
+  .camera-device-control {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .camera-device-control > span {
+    font-size: 9px;
+  }
+
+  .camera-device-status {
+    white-space: normal;
   }
 
   .camera-stage {

@@ -9,7 +9,8 @@
     />
     <meta name="theme-color" content="#f3ede3" />
     <title>오늘, 파리 — 인생사진 포토부스</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="icon" href="/og.png" type="image/png" />
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <a class="skip-link" href="#studio">촬영 스튜디오로 바로가기</a>
@@ -112,6 +113,21 @@
             </div>
           </div>
 
+          <div class="camera-source-bar">
+            <label class="camera-device-control" for="cameraSelect">
+              <span>촬영 카메라</span>
+              <select id="cameraSelect" aria-describedby="cameraDeviceStatus" disabled>
+                <option value="">기본 카메라</option>
+              </select>
+            </label>
+            <button class="camera-refresh-button" id="refreshCamerasButton" type="button">
+              다시 찾기
+            </button>
+            <span class="camera-device-status" id="cameraDeviceStatus" role="status">
+              카메라를 켜면 연결된 장치가 표시돼요.
+            </span>
+          </div>
+
           <div class="camera-stage" id="cameraStage">
             <canvas id="previewCanvas" width="720" height="900" aria-label="촬영 미리보기"></canvas>
             <video id="cameraVideo" autoplay muted playsinline aria-hidden="true"></video>
@@ -173,6 +189,16 @@
               사진
             </button>
           </div>
+
+          <details class="external-camera-help">
+            <summary>GoPro · 외장 카메라 연결 안내</summary>
+            <p>
+              노트북 카메라와 USB 웹캠은 위 목록에서 바로 선택할 수 있어요. GoPro는
+              <strong>USB 웹캠 모드</strong> 또는 <strong>HDMI 캡처카드</strong>로 컴퓨터에
+              영상 장치로 연결한 뒤 ‘다시 찾기’를 눌러 주세요. 블루투스 연결만으로는 브라우저에
+              영상이 전달되지 않습니다.
+            </p>
+          </details>
         </div>
 
         <div class="control-section">
@@ -340,6 +366,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script type="module" src="./src/app.js"></script>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

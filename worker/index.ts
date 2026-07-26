@@ -29,6 +29,22 @@ const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    const legacyAssetRoutes: Record<string, string> = {
+      "/booth": "/index.html",
+      "/booth/": "/index.html",
+      "/booth/index.html": "/index.html",
+      "/booth/styles.css": "/styles.css",
+      "/booth/src/app.js": "/app.js",
+      "/booth/assets/backgrounds/paris-golden-hour.png":
+        "/paris-golden-hour.png",
+      "/src/app.js": "/app.js",
+      "/assets/backgrounds/paris-golden-hour.png": "/paris-golden-hour.png",
+    };
+    const redirectTarget = legacyAssetRoutes[url.pathname];
+    if (redirectTarget) {
+      return Response.redirect(new URL(redirectTarget, request.url), 308);
+    }
+
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       return handleImageOptimization(request, {
