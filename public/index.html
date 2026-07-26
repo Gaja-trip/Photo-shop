@@ -137,14 +137,29 @@
             <img id="portraitSource" alt="" aria-hidden="true" />
 
             <div class="stage-vignette" aria-hidden="true"></div>
+            <div class="composition-grid" aria-hidden="true">
+              <span class="composition-axis"></span>
+              <span class="composition-horizon"></span>
+              <span class="composition-footline"></span>
+            </div>
+
+            <div class="composition-badge" aria-hidden="true">
+              <span>REFERENCE</span>
+              <strong>에펠탑은 크게 · 인물은 중앙 하단</strong>
+            </div>
+
             <div class="pose-guide" id="poseGuide" aria-hidden="true">
               <span class="pose-head"></span>
-              <span class="pose-body"></span>
+              <span class="pose-torso"></span>
+              <span class="pose-arm pose-arm-left"></span>
+              <span class="pose-arm pose-arm-right"></span>
+              <span class="pose-leg pose-leg-left"></span>
+              <span class="pose-leg pose-leg-right"></span>
               <span class="pose-ground"></span>
             </div>
 
             <div class="framing-feedback" id="framingFeedback" role="status" aria-live="polite">
-              <strong>1.5m</strong>
+              <strong>전신 · 1.5m부터</strong>
               <span>표시선에 서서 머리부터 발끝까지 맞춰주세요</span>
             </div>
 
@@ -156,7 +171,7 @@
                 </svg>
               </span>
               <strong>카메라를 켜고 파리 안으로 들어가세요</strong>
-              <p>약 1.5m 거리에서 전신을 맞추면 가장 자연스러워요.</p>
+              <p>약 1.5m에서 시작해 머리와 발이 모두 보일 때까지 뒤로 이동해 주세요.</p>
               <div class="empty-actions">
                 <button class="button button-light" id="stageCameraButton" type="button">
                   카메라 켜기
@@ -222,16 +237,16 @@
             <button
               class="background-option is-selected"
               type="button"
-              data-background="/backgrounds/paris-golden-hour.webp"
+              data-background="/backgrounds/paris-eiffel-closeup.webp"
               data-tone="golden"
-              aria-label="에펠 골든 배경"
+              aria-label="에펠 클로즈업 배경"
               aria-pressed="true"
             >
               <span class="background-thumb">
-                <img src="/backgrounds/thumbs/paris-golden-hour.webp" alt="" />
+                <img src="/backgrounds/thumbs/paris-eiffel-closeup.webp" alt="" />
                 <i aria-hidden="true">✓</i>
               </span>
-              <strong>에펠 골든</strong>
+              <strong>에펠 클로즈업</strong>
             </button>
             <button
               class="background-option"
@@ -292,16 +307,16 @@
             <button
               class="background-option"
               type="button"
-              data-background="/backgrounds/paris-luxembourg-garden.webp"
+              data-background="/backgrounds/paris-golden-hour.webp"
               data-tone="golden"
-              aria-label="뤽상부르 정원 배경"
+              aria-label="에펠 골든 라이딩 배경"
               aria-pressed="false"
             >
               <span class="background-thumb">
-                <img src="/backgrounds/thumbs/paris-luxembourg-garden.webp" alt="" loading="lazy" />
+                <img src="/backgrounds/thumbs/paris-golden-hour.webp" alt="" loading="lazy" />
                 <i aria-hidden="true">✓</i>
               </span>
-              <strong>정원 산책</strong>
+              <strong>에펠 라이딩</strong>
             </button>
             <button
               class="background-option"
@@ -415,12 +430,12 @@
           <div class="panel-heading compact">
             <div>
               <span>03</span>
-              <h2>1.5m 촬영 안내</h2>
+              <h2>1.5m 전신 촬영 안내</h2>
             </div>
           </div>
           <ol class="shooting-guide-list">
             <li><span>1</span><p><strong>카메라 높이</strong>허리와 가슴 사이에 렌즈를 맞춰요.</p></li>
-            <li><span>2</span><p><strong>촬영 거리</strong>바닥에서 약 1.5m 뒤로 서서 전신을 보여주세요.</p></li>
+            <li><span>2</span><p><strong>촬영 거리</strong>약 1.5m에서 시작해 전신이 보일 때까지 뒤로 이동하세요.</p></li>
             <li><span>3</span><p><strong>구도</strong>화면 안내가 초록색이 되면 정면을 보고 촬영해요.</p></li>
           </ol>
           <div class="quick-start">

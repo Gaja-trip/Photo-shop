@@ -519,13 +519,135 @@ svg {
     linear-gradient(0deg, rgba(15, 27, 22, 0.34), transparent 24%);
 }
 
-.pose-guide {
+.composition-grid {
   position: absolute;
-  inset: 7% 21% 4%;
+  inset: 0;
+  z-index: 3;
+  display: none;
+  pointer-events: none;
+  opacity: 0.78;
+  transition: opacity 180ms ease;
+}
+
+.camera-stage.has-source .composition-grid {
+  display: block;
+}
+
+.composition-grid > span {
+  position: absolute;
+  display: block;
+}
+
+.composition-axis {
+  top: 50%;
+  bottom: 3.5%;
+  left: 50%;
+  width: 1px;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.44) 0 3px,
+    transparent 3px 9px
+  );
+  transform: translateX(-50%);
+}
+
+.composition-horizon {
+  top: 55.5%;
+  right: 8%;
+  left: 8%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.42) 22%,
+    rgba(255, 255, 255, 0.42) 78%,
+    transparent
+  );
+}
+
+.composition-horizon::before,
+.composition-horizon::after {
+  position: absolute;
+  top: -3px;
+  width: 7px;
+  height: 7px;
+  content: "";
+  border-top: 1px solid rgba(255, 255, 255, 0.64);
+}
+
+.composition-horizon::before {
+  left: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.64);
+}
+
+.composition-horizon::after {
+  right: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.64);
+}
+
+.composition-footline {
+  right: 34%;
+  bottom: 3.5%;
+  left: 34%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(243, 215, 157, 0.9) 22%,
+    rgba(243, 215, 157, 0.9) 78%,
+    transparent
+  );
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.28);
+}
+
+.composition-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 8;
+  display: none;
+  max-width: 40%;
+  min-height: 34px;
+  padding: 6px 10px 7px;
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 11px;
+  background: rgba(15, 32, 26, 0.58);
+  box-shadow: 0 7px 20px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.camera-stage.has-source .composition-badge {
+  display: grid;
+  gap: 1px;
+}
+
+.composition-badge span {
+  color: #f3d79d;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+}
+
+.composition-badge strong {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pose-guide {
+  --guide-color: rgba(255, 255, 255, 0.78);
+  position: absolute;
+  inset: 0;
   z-index: 4;
   display: none;
   pointer-events: none;
-  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.22));
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+  transition: opacity 180ms ease;
 }
 
 .camera-stage.has-source .pose-guide {
@@ -535,51 +657,114 @@ svg {
 .pose-guide > span {
   position: absolute;
   left: 50%;
-  border: 1px dashed rgba(255, 255, 255, 0.72);
-  transform: translateX(-50%);
+  display: block;
+  border-color: var(--guide-color);
 }
 
 .pose-head {
-  top: 3%;
-  width: 27%;
-  aspect-ratio: 0.82;
+  top: 56.5%;
+  width: 7.5%;
+  aspect-ratio: 0.8;
+  border: 1px dashed var(--guide-color);
   border-radius: 50%;
+  transform: translateX(-50%);
 }
 
-.pose-body {
-  top: 18%;
-  bottom: 4%;
-  width: 70%;
-  border-radius: 46% 46% 20% 20% / 18% 18% 10% 10%;
+.pose-torso {
+  top: 64.5%;
+  width: 12%;
+  height: 15.5%;
+  border: 1px dashed var(--guide-color);
+  border-radius: 48% 48% 34% 34% / 23% 23% 18% 18%;
+  transform: translateX(-50%);
+}
+
+.pose-arm {
+  top: 66.5%;
+  width: 1px;
+  height: 16.5%;
+  border-left: 1px dashed var(--guide-color);
+  transform-origin: top center;
+}
+
+.pose-guide > .pose-arm-left {
+  left: 44.2%;
+  transform: rotate(7deg);
+}
+
+.pose-guide > .pose-arm-right {
+  left: 55.8%;
+  transform: rotate(-7deg);
+}
+
+.pose-leg {
+  top: 79.2%;
+  width: 1px;
+  height: 17.3%;
+  border-left: 1px dashed var(--guide-color);
+  transform-origin: top center;
+}
+
+.pose-guide > .pose-leg-left {
+  left: 48%;
+  transform: rotate(2.5deg);
+}
+
+.pose-guide > .pose-leg-right {
+  left: 52%;
+  transform: rotate(-2.5deg);
 }
 
 .pose-ground {
-  bottom: 0;
-  width: 92%;
-  border-width: 1px 0 0;
+  bottom: 3.5%;
+  width: 22%;
+  height: 7px;
+  border-top: 1px solid var(--guide-color);
+  border-right: 1px solid var(--guide-color);
+  border-left: 1px solid var(--guide-color);
+  border-radius: 8px 8px 0 0;
+  transform: translateX(-50%);
+}
+
+.camera-stage:has(.framing-feedback.is-ready) .pose-guide {
+  --guide-color: rgba(184, 255, 194, 0.92);
+}
+
+.camera-stage:has(.framing-feedback.is-ready) .composition-footline {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(184, 255, 194, 0.92) 22%,
+    rgba(184, 255, 194, 0.92) 78%,
+    transparent
+  );
+}
+
+.camera-stage:has(.framing-feedback.is-warning) .pose-guide {
+  --guide-color: rgba(255, 213, 143, 0.9);
 }
 
 .framing-feedback {
   position: absolute;
   top: 12px;
-  left: 50%;
+  right: 12px;
   z-index: 8;
   display: none;
-  max-width: calc(100% - 24px);
-  min-height: 36px;
-  padding: 7px 12px;
+  max-width: 52%;
+  min-height: 34px;
+  padding: 6px 10px;
   align-items: center;
   gap: 8px;
   color: white;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  text-align: center;
+  line-height: 1.35;
+  text-align: left;
   border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
+  border-radius: 11px;
   background: rgba(16, 37, 30, 0.72);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(10px);
-  transform: translateX(-50%);
 }
 
 .camera-stage.has-source .framing-feedback {
@@ -588,8 +773,9 @@ svg {
 
 .framing-feedback strong {
   color: #f3d79d;
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 .framing-feedback.is-ready {
@@ -605,8 +791,12 @@ svg {
 }
 
 .camera-stage.is-counting .pose-guide,
+.camera-stage.is-counting .composition-grid,
+.camera-stage.is-counting .composition-badge,
 .camera-stage.is-counting .framing-feedback,
 .camera-stage.is-captured .pose-guide,
+.camera-stage.is-captured .composition-grid,
+.camera-stage.is-captured .composition-badge,
 .camera-stage.is-captured .framing-feedback {
   opacity: 0;
 }
@@ -623,7 +813,7 @@ svg {
   text-align: center;
   background:
     linear-gradient(180deg, rgba(18, 38, 31, 0.18), rgba(18, 38, 31, 0.64)),
-    url("/backgrounds/paris-golden-hour.webp") center / cover;
+    url("/backgrounds/paris-eiffel-closeup.webp") center / cover;
 }
 
 .camera-stage.has-source .empty-state {

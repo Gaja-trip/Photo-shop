@@ -33,7 +33,7 @@ const driveSaveStatus = byId("driveSaveStatus");
 const driveSaveDetail = byId("driveSaveDetail");
 const driveRetryButton = byId("driveRetryButton");
 
-const DEFAULT_BACKGROUND_PATH = "/backgrounds/paris-golden-hour.webp";
+const DEFAULT_BACKGROUND_PATH = "/backgrounds/paris-eiffel-closeup.webp";
 const DRIVE_UPLOAD_ENDPOINT = "/api/photos";
 const MEDIAPIPE_VERSION = "0.10.35";
 const MEDIAPIPE_MODULE =
@@ -47,8 +47,12 @@ const PREVIEW_HEIGHT = 900;
 const EXPORT_WIDTH = 1080;
 const EXPORT_HEIGHT = 1350;
 const SEGMENTATION_INTERVAL = 92;
-const MAX_INFERENCE_EDGE = 960;
-const MAX_STILL_INFERENCE_EDGE = 1280;
+const MAX_INFERENCE_EDGE = 640;
+const MAX_STILL_INFERENCE_EDGE = 1600;
+const MAX_CAPTURE_EDGE = 2560;
+const REFERENCE_PERSON_HEIGHT = 0.44;
+const REFERENCE_GROUND_Y = 0.975;
+const REFERENCE_PERSON_CENTER_X = 0.52;
 
 const defaultBackground = new Image();
 defaultBackground.decoding = "async";
@@ -78,6 +82,7 @@ const state = {
   visionFiles: null,
   cpuRecoveryStarted: false,
   isSegmenting: false,
+  segmentationGeneration: 0,
   lastSegmentedAt: 0,
   lastVideoTime: -1,
   maskCanvas: document.createElement("canvas"),
@@ -86,7 +91,13 @@ const state = {
   maskAvailable: false,
   maskUpdatedAt: 0,
   personBounds: null,
+  personClipping: null,
+  maskTemporalValues: null,
+  maskTemporalWidth: 0,
+  maskTemporalHeight: 0,
+  maskTemporalSourceToken: null,
   staticMaskRequested: false,
+  staticMaskAttempts: 0,
   resultBlob: null,
   resultUrl: "",
   renderHandle: 0,
@@ -112,7 +123,9 @@ const personLayer = document.createElement("canvas");
 const softMaskLayer = document.createElement("canvas");
 const exportCanvas = document.createElement("canvas");
 const captureFrameCanvas = document.createElement("canvas");
+const environmentSampleCanvas = document.createElement("canvas");
 const backgroundImageCache = new Map([[DEFAULT_BACKGROUND_PATH, defaultBackground]]);
+const backgroundEnvironmentCache = new WeakMap();
 exportCanvas.width = EXPORT_WIDTH;
 exportCanvas.height = EXPORT_HEIGHT;
 
@@ -227,13 +240,51 @@ function getBackgroundFilter() {
   return filters[state.backgroundTone] || filters.golden;
 }
 
-function getPortraitFilter() {
-  const filters = {
-    natural: "brightness(1.035) saturate(.96) contrast(.97)",
-    "paris-film": "brightness(1.01) saturate(.83) sepia(.08) contrast(.94)",
-    lumiere: "brightness(1.075) saturate(1.02) sepia(.05) contrast(.94)",
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function smoothStep(minimum, maximum, value) {
+  const normalized = clamp((value - minimum) / (maximum - minimum), 0, 1);
+  return normalized * normalized * (3 - 2 * normalized);
+}
+
+function getPortraitFilter(environment) {
+  const presets = {
+    natural: {
+      brightness: 1.015,
+      saturation: 0.94,
+      contrast: 0.98,
+      sepia: 0,
+    },
+    "paris-film": {
+      brightness: 0.995,
+      saturation: 0.82,
+      contrast: 0.95,
+      sepia: 0.08,
+    },
+    lumiere: {
+      brightness: 1.055,
+      saturation: 1,
+      contrast: 0.95,
+      sepia: 0.05,
+    },
   };
-  return filters[state.look] || filters.natural;
+  const preset = presets[state.look] || presets.natural;
+  const environmentLuminance = environment?.luminance ?? 0.58;
+  const exposureMatch = clamp(0.87 + environmentLuminance * 0.27, 0.91, 1.08);
+  const brightness = (preset.brightness * exposureMatch).toFixed(3);
+  const saturation = (
+    preset.saturation *
+    clamp(0.94 + environmentLuminance * 0.08, 0.92, 1.02)
+  ).toFixed(3);
+
+  return [
+    `brightness(${brightness})`,
+    `saturate(${saturation})`,
+    `sepia(${preset.sepia})`,
+    `contrast(${preset.contrast})`,
+  ].join(" ");
 }
 
 function drawBackground(context, width, height) {
@@ -255,6 +306,76 @@ function drawBackground(context, width, height) {
   atmosphericWash.addColorStop(1, "rgba(43, 47, 37, .06)");
   context.fillStyle = atmosphericWash;
   context.fillRect(0, 0, width, height);
+}
+
+function getFallbackEnvironment() {
+  const environments = {
+    golden: { red: 210, green: 186, blue: 151, luminance: 0.68 },
+    rose: { red: 205, green: 177, blue: 170, luminance: 0.65 },
+    film: { red: 135, green: 145, blue: 150, luminance: 0.48 },
+    custom: { red: 178, green: 177, blue: 170, luminance: 0.58 },
+  };
+  return environments[state.backgroundTone] || environments.custom;
+}
+
+function sampleBackgroundEnvironment(context, width, height) {
+  const image = state.backgroundImage;
+  const cachedByTone = image && backgroundEnvironmentCache.get(image);
+  if (cachedByTone?.has(state.backgroundTone)) {
+    return cachedByTone.get(state.backgroundTone);
+  }
+
+  let environment = getFallbackEnvironment();
+  try {
+    environmentSampleCanvas.width = 5;
+    environmentSampleCanvas.height = 7;
+    const sampleContext = environmentSampleCanvas.getContext("2d", {
+      willReadFrequently: true,
+    });
+    sampleContext.clearRect(0, 0, 5, 7);
+    sampleContext.drawImage(context.canvas, 0, 0, width, height, 0, 0, 5, 7);
+    const pixels = sampleContext.getImageData(0, 0, 5, 7).data;
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+    let weightTotal = 0;
+
+    for (let y = 1; y < 7; y += 1) {
+      for (let x = 0; x < 5; x += 1) {
+        const pixelIndex = (y * 5 + x) * 4;
+        const centerWeight = x === 2 ? 1.35 : 1;
+        const groundWeight = y >= 4 ? 1.2 : 1;
+        const weight = centerWeight * groundWeight;
+        red += pixels[pixelIndex] * weight;
+        green += pixels[pixelIndex + 1] * weight;
+        blue += pixels[pixelIndex + 2] * weight;
+        weightTotal += weight;
+      }
+    }
+
+    red /= weightTotal;
+    green /= weightTotal;
+    blue /= weightTotal;
+    environment = {
+      red: Math.round(red),
+      green: Math.round(green),
+      blue: Math.round(blue),
+      luminance: clamp(
+        (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255,
+        0.12,
+        0.92,
+      ),
+    };
+  } catch {
+    // A custom cross-origin image can taint a canvas; the tone preset is safe.
+  }
+
+  if (image) {
+    const toneCache = cachedByTone || new Map();
+    toneCache.set(state.backgroundTone, environment);
+    backgroundEnvironmentCache.set(image, toneCache);
+  }
+  return environment;
 }
 
 function ensureLayerSize(layer, width, height) {
@@ -302,38 +423,53 @@ function getLayerPersonBounds(sourceCrop, sourceSize, width, height) {
 }
 
 function getPersonPlacement(width, height, personBounds) {
-  const scale = state.personScale;
-  const drawWidth = width * scale;
-  const drawHeight = height * scale;
-
   if (personBounds) {
+    const requestedHeight =
+      height * REFERENCE_PERSON_HEIGHT * (state.personScale / 0.9);
+    const scale = clamp(requestedHeight / personBounds.height, 0.32, 1.72);
+    const drawWidth = width * scale;
+    const drawHeight = height * scale;
+    const groundY =
+      height * REFERENCE_GROUND_Y + height * state.personOffsetY;
     return {
-      x: width / 2 - personBounds.centerX * scale,
-      y:
-        height * 0.965 -
-        personBounds.bottom * scale +
-        height * state.personOffsetY,
+      x: width * REFERENCE_PERSON_CENTER_X - personBounds.centerX * scale,
+      y: groundY - personBounds.bottom * scale,
       width: drawWidth,
       height: drawHeight,
-      groundX: width / 2,
-      groundY: height * 0.965 + height * state.personOffsetY,
+      scale,
+      groundX: width * REFERENCE_PERSON_CENTER_X,
+      groundY,
       subjectWidth: personBounds.width * scale,
+      subjectHeight: personBounds.height * scale,
     };
   }
 
+  const scale = state.personScale;
+  const drawWidth = width * scale;
+  const drawHeight = height * scale;
   return {
     x: (width - drawWidth) / 2,
     y: height - drawHeight + height * state.personOffsetY,
     width: drawWidth,
     height: drawHeight,
+    scale,
     groundX: width / 2,
     groundY: height * 0.91 + height * state.personOffsetY,
     subjectWidth: width * 0.46 * scale,
+    subjectHeight: height * 0.7 * scale,
   };
 }
 
 function setFramingFeedback(mode, message) {
   if (!framingFeedback) return;
+  if (
+    framingFeedback.dataset.feedbackMode === mode &&
+    framingFeedback.dataset.feedbackMessage === message
+  ) {
+    return;
+  }
+  framingFeedback.dataset.feedbackMode = mode;
+  framingFeedback.dataset.feedbackMessage = message;
   framingFeedback.classList.toggle("is-ready", mode === "ready");
   framingFeedback.classList.toggle("is-warning", mode === "warning");
   const label = framingFeedback.querySelector("span");
@@ -346,7 +482,7 @@ function updateFramingGuidance() {
     state.framingReadySince = 0;
     setFramingFeedback(
       "waiting",
-      "표시선에 서서 머리부터 발끝까지 맞춰주세요",
+      "약 1.5m에서 시작해 머리와 발이 보일 때까지 뒤로 이동해 주세요",
     );
     return;
   }
@@ -368,20 +504,26 @@ function updateFramingGuidance() {
 
   if (!personBounds) {
     state.framingReady = false;
-    setFramingFeedback("waiting", "전신이 보이도록 약 1.5m 뒤에 서주세요");
+    setFramingFeedback(
+      "waiting",
+      "약 1.5m에서 시작해 머리와 발이 모두 보이게 맞춰주세요",
+    );
     return;
   }
 
-  const placement = getPersonPlacement(
-    PREVIEW_WIDTH,
-    PREVIEW_HEIGHT,
-    personBounds,
-  );
-  const outputTop =
-    (placement.y + personBounds.top * state.personScale) / PREVIEW_HEIGHT;
-  const outputHeight =
-    (personBounds.height * state.personScale) / PREVIEW_HEIGHT;
+  const sourceHeight = personBounds.height / PREVIEW_HEIGHT;
+  const visualCenterX = personBounds.centerX / PREVIEW_WIDTH;
   const sourceClipped =
+    Boolean(
+      state.personClipping?.top ||
+      state.personClipping?.bottom ||
+      state.personClipping?.left ||
+      state.personClipping?.right,
+    ) ||
+    personBounds.top <= 2 ||
+    personBounds.bottom >= PREVIEW_HEIGHT - 2 ||
+    personBounds.left <= 2 ||
+    personBounds.right >= PREVIEW_WIDTH - 2 ||
     state.personBounds.top <= 0.018 ||
     state.personBounds.bottom >= 0.985 ||
     state.personBounds.left <= 0.018 ||
@@ -389,14 +531,18 @@ function updateFramingGuidance() {
 
   let mode = "warning";
   let message = "";
-  if (sourceClipped || outputTop < 0.085 || outputHeight > 0.89) {
+  if (sourceClipped || sourceHeight > 0.92) {
     message = "반걸음 뒤로 이동해 머리와 발끝을 모두 보여주세요";
-  } else if (outputTop > 0.235 || outputHeight < 0.7) {
-    message = "반걸음 앞으로 이동해 실루엣에 몸을 맞춰주세요";
+  } else if (sourceHeight < 0.52) {
+    message = "반걸음 앞으로 이동하면 인물이 더 선명하게 촬영돼요";
+  } else if (visualCenterX < 0.42) {
+    message = "화면 오른쪽으로 조금 이동해 중앙선에 맞춰주세요";
+  } else if (visualCenterX > 0.58) {
+    message = "화면 왼쪽으로 조금 이동해 중앙선에 맞춰주세요";
   } else {
     const now = performance.now();
     if (!state.framingReadySince) state.framingReadySince = now;
-    const stable = now - state.framingReadySince >= 700;
+    const stable = now - state.framingReadySince >= 900;
     state.framingReady = stable;
     mode = stable ? "ready" : "waiting";
     message = stable
@@ -411,32 +557,73 @@ function updateFramingGuidance() {
   setFramingFeedback(mode, message);
 }
 
-function drawGroundingShadow(context, width, height, placement) {
+function drawGroundingShadow(context, width, height, placement, environment) {
   if (state.shadowStrength <= 0) return;
+  const luminance = environment?.luminance ?? 0.58;
+  const red = Math.round((environment?.red ?? 120) * 0.2);
+  const green = Math.round((environment?.green ?? 110) * 0.18);
+  const blue = Math.round((environment?.blue ?? 100) * 0.16);
+  const baseOpacity =
+    clamp(0.2 + (1 - luminance) * 0.22, 0.2, 0.38) *
+    state.shadowStrength;
+  const ambientRadius = Math.max(
+    width * 0.035,
+    placement.subjectWidth * 0.54,
+  );
+
   context.save();
-  const shadow = context.createRadialGradient(
-    placement.groundX,
-    placement.groundY,
-    width * 0.03,
-    placement.groundX,
-    placement.groundY,
-    Math.max(width * 0.1, placement.subjectWidth * 0.62),
+  context.translate(placement.groundX, placement.groundY);
+  context.scale(1, 0.22);
+  const ambientShadow = context.createRadialGradient(
+    0,
+    0,
+    ambientRadius * 0.08,
+    0,
+    0,
+    ambientRadius,
   );
-  shadow.addColorStop(0, `rgba(38, 28, 18, ${0.34 * state.shadowStrength})`);
-  shadow.addColorStop(0.48, `rgba(38, 28, 18, ${0.18 * state.shadowStrength})`);
-  shadow.addColorStop(1, "rgba(38, 28, 18, 0)");
-  context.scale(1, 0.32);
-  context.fillStyle = shadow;
+  ambientShadow.addColorStop(
+    0,
+    `rgba(${red}, ${green}, ${blue}, ${baseOpacity})`,
+  );
+  ambientShadow.addColorStop(
+    0.46,
+    `rgba(${red}, ${green}, ${blue}, ${baseOpacity * 0.46})`,
+  );
+  ambientShadow.addColorStop(1, `rgba(${red}, ${green}, ${blue}, 0)`);
+  context.fillStyle = ambientShadow;
   context.beginPath();
-  context.ellipse(
-    placement.groundX,
-    placement.groundY / 0.32,
-    Math.max(width * 0.1, placement.subjectWidth * 0.62),
-    height * 0.09,
-    0,
-    0,
-    Math.PI * 2,
+  context.ellipse(0, 0, ambientRadius, height * 0.07, 0, 0, Math.PI * 2);
+  context.fill();
+  context.restore();
+
+  const contactRadius = Math.max(
+    width * 0.016,
+    placement.subjectWidth * 0.2,
   );
+  context.save();
+  context.translate(placement.groundX, placement.groundY - height * 0.001);
+  context.scale(1, 0.18);
+  const contactShadow = context.createRadialGradient(
+    0,
+    0,
+    0,
+    0,
+    0,
+    contactRadius,
+  );
+  contactShadow.addColorStop(
+    0,
+    `rgba(${red}, ${green}, ${blue}, ${clamp(baseOpacity * 1.28, 0, 0.48)})`,
+  );
+  contactShadow.addColorStop(
+    0.62,
+    `rgba(${red}, ${green}, ${blue}, ${baseOpacity * 0.42})`,
+  );
+  contactShadow.addColorStop(1, `rgba(${red}, ${green}, ${blue}, 0)`);
+  context.fillStyle = contactShadow;
+  context.beginPath();
+  context.ellipse(0, 0, contactRadius, height * 0.028, 0, 0, Math.PI * 2);
   context.fill();
   context.restore();
 }
@@ -496,9 +683,11 @@ function applyPortraitMask(context, sourceCrop, sourceSize, width, height, useAi
       height: (sourceCrop.height / sourceSize.height) * state.maskCanvas.height,
     };
     context.save();
-    context.filter = `blur(${Math.max(0.7, width * 0.0017)}px)`;
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
     drawCropped(context, state.maskCanvas, maskCrop, width, height, {
       mirror: state.mirror,
+      filter: `blur(${clamp(width * 0.00072, 0.42, 1.05)}px)`,
     });
     context.restore();
     return;
@@ -584,6 +773,7 @@ function renderComposite(context, width, height, sourceOverride = null) {
   context.filter = "none";
   context.clearRect(0, 0, width, height);
   drawBackground(context, width, height);
+  const environment = sampleBackgroundEnvironment(context, width, height);
 
   const source = sourceOverride || getSource();
   if (!source) {
@@ -607,26 +797,46 @@ function renderComposite(context, width, height, sourceOverride = null) {
     state.maskCanvas.height > 0 &&
     (state.sourceType === "image" || performance.now() - state.maskUpdatedAt < 1600);
 
-  drawGroundingShadow(context, width, height, placement);
+  drawGroundingShadow(context, width, height, placement, environment);
 
   ensureLayerSize(personLayer, width, height);
   const personContext = personLayer.getContext("2d");
   personContext.setTransform(1, 0, 0, 1, 0, 0);
   personContext.clearRect(0, 0, width, height);
   personContext.globalCompositeOperation = "source-over";
+  personContext.globalAlpha = 1;
+  personContext.imageSmoothingEnabled = true;
+  personContext.imageSmoothingQuality = "high";
 
   drawCropped(personContext, source, sourceCrop, width, height, {
     mirror: state.mirror,
-    filter: getPortraitFilter(),
+    filter: getPortraitFilter(environment),
   });
   applyPortraitMask(personContext, sourceCrop, sourceSize, width, height, useAiMask);
 
   personContext.globalCompositeOperation = "source-atop";
+  personContext.globalAlpha = state.look === "lumiere" ? 0.115 : 0.085;
+  personContext.fillStyle =
+    `rgb(${environment.red}, ${environment.green}, ${environment.blue})`;
+  personContext.fillRect(0, 0, width, height);
+
+  personContext.globalAlpha = 1;
   const directionalLight = personContext.createLinearGradient(0, 0, width, 0);
-  directionalLight.addColorStop(0, "rgba(255, 218, 158, .18)");
-  directionalLight.addColorStop(0.34, "rgba(255, 238, 208, .06)");
-  directionalLight.addColorStop(0.68, "rgba(103, 128, 130, 0)");
-  directionalLight.addColorStop(1, "rgba(67, 94, 99, .09)");
+  const lightWarmth = clamp(
+    (environment.red - environment.blue) / 255,
+    -0.18,
+    0.28,
+  );
+  directionalLight.addColorStop(
+    0,
+    `rgba(255, 231, 191, ${0.075 + Math.max(0, lightWarmth) * 0.23})`,
+  );
+  directionalLight.addColorStop(0.38, "rgba(255, 246, 225, .025)");
+  directionalLight.addColorStop(0.7, "rgba(83, 108, 116, 0)");
+  directionalLight.addColorStop(
+    1,
+    `rgba(54, 73, 80, ${clamp(0.035 + (0.58 - environment.luminance) * 0.08, 0.02, 0.08)})`,
+  );
   personContext.fillStyle = directionalLight;
   personContext.fillRect(0, 0, width, height);
 
@@ -634,7 +844,9 @@ function renderComposite(context, width, height, sourceOverride = null) {
   personContext.filter = "none";
 
   context.save();
-  context.filter = `drop-shadow(0 ${height * 0.004}px ${width * 0.008}px rgba(59, 42, 27, .11))`;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.filter = `drop-shadow(0 ${height * 0.0025}px ${width * 0.0035}px rgba(50, 38, 27, .065))`;
   context.drawImage(
     personLayer,
     placement.x,
@@ -677,7 +889,215 @@ function closeMaskResources(result) {
   });
 }
 
-function updateMask(result) {
+function resetTemporalMask() {
+  state.maskTemporalValues = null;
+  state.maskTemporalWidth = 0;
+  state.maskTemporalHeight = 0;
+  state.maskTemporalSourceToken = null;
+  state.personClipping = null;
+}
+
+function getMaskSourceToken() {
+  return state.sourceType === "video" ? state.stream : state.portraitUrl;
+}
+
+function handlePersonMaskMiss() {
+  state.maskAvailable = false;
+  state.personBounds = null;
+  state.personClipping = null;
+
+  if (state.sourceType === "image") {
+    if (state.staticMaskAttempts < 3) {
+      state.staticMaskRequested = false;
+      updateAiStatus("loading", "사진 속 인물을 다시 확인하는 중");
+    } else {
+      updateAiStatus("fallback", "사진 속 인물을 찾지 못했어요");
+      showCameraMessage(
+        "머리부터 발끝까지 선명하게 보이는 사진을 다시 불러와 주세요.",
+      );
+    }
+  } else {
+    updateAiStatus("loading", "사람을 화면 중앙에서 찾는 중");
+  }
+
+  updateCaptureReadiness();
+  updateFramingGuidance();
+}
+
+function findQuantileIndex(values, total, quantile) {
+  const target = total * quantile;
+  let cumulative = 0;
+  for (let index = 0; index < values.length; index += 1) {
+    cumulative += values[index];
+    if (cumulative >= target) return index;
+  }
+  return values.length - 1;
+}
+
+function findPrimaryPersonRegion(alphaValues, width, height) {
+  const pixelCount = width * height;
+  const visited = new Uint8Array(pixelCount);
+  const queue = new Int32Array(pixelCount);
+  const componentThreshold = 0.16;
+  const minimumArea = Math.max(24, Math.round(pixelCount * 0.0008));
+  let bestComponent = null;
+
+  for (let start = 0; start < pixelCount; start += 1) {
+    if (visited[start] || alphaValues[start] < componentThreshold) continue;
+
+    let head = 0;
+    let tail = 0;
+    let mass = 0;
+    let weightedX = 0;
+    queue[tail] = start;
+    tail += 1;
+    visited[start] = 1;
+
+    while (head < tail) {
+      const index = queue[head];
+      head += 1;
+      const x = index % width;
+      const y = Math.floor(index / width);
+      const alpha = alphaValues[index];
+      const weight = alpha * alpha;
+      mass += weight;
+      weightedX += x * weight;
+
+      const left = index - 1;
+      const right = index + 1;
+      const up = index - width;
+      const down = index + width;
+
+      if (x > 0 && !visited[left] && alphaValues[left] >= componentThreshold) {
+        visited[left] = 1;
+        queue[tail] = left;
+        tail += 1;
+      }
+      if (
+        x + 1 < width &&
+        !visited[right] &&
+        alphaValues[right] >= componentThreshold
+      ) {
+        visited[right] = 1;
+        queue[tail] = right;
+        tail += 1;
+      }
+      if (y > 0 && !visited[up] && alphaValues[up] >= componentThreshold) {
+        visited[up] = 1;
+        queue[tail] = up;
+        tail += 1;
+      }
+      if (
+        y + 1 < height &&
+        !visited[down] &&
+        alphaValues[down] >= componentThreshold
+      ) {
+        visited[down] = 1;
+        queue[tail] = down;
+        tail += 1;
+      }
+    }
+
+    if (tail < minimumArea || mass <= 0) continue;
+    const centerX = weightedX / mass / width;
+    const centrality = 1.16 - Math.abs(centerX - 0.5) * 0.42;
+    const score = mass * centrality;
+    if (!bestComponent || score > bestComponent.score) {
+      bestComponent = {
+        score,
+        indices: queue.slice(0, tail),
+      };
+    }
+  }
+
+  if (!bestComponent) return null;
+
+  const columnMass = new Float32Array(width);
+  const rowMass = new Float32Array(height);
+  let totalMass = 0;
+  let topEdgeCount = 0;
+  let bottomEdgeCount = 0;
+  let leftEdgeCount = 0;
+  let rightEdgeCount = 0;
+  let componentMinX = width;
+  let componentMinY = height;
+  let componentMaxX = -1;
+  let componentMaxY = -1;
+  const edgeRows = Math.max(1, Math.round(height * 0.012));
+  const edgeColumns = Math.max(1, Math.round(width * 0.012));
+
+  for (const index of bestComponent.indices) {
+    const x = index % width;
+    const y = Math.floor(index / width);
+    const mass = Math.pow(alphaValues[index], 1.35);
+    columnMass[x] += mass;
+    rowMass[y] += mass;
+    totalMass += mass;
+    componentMinX = Math.min(componentMinX, x);
+    componentMinY = Math.min(componentMinY, y);
+    componentMaxX = Math.max(componentMaxX, x);
+    componentMaxY = Math.max(componentMaxY, y);
+    if (y < edgeRows) topEdgeCount += 1;
+    if (y >= height - edgeRows) bottomEdgeCount += 1;
+    if (x < edgeColumns) leftEdgeCount += 1;
+    if (x >= width - edgeColumns) rightEdgeCount += 1;
+  }
+
+  if (totalMass <= 0) return null;
+  const left = findQuantileIndex(columnMass, totalMass, 0.0008);
+  const right = findQuantileIndex(columnMass, totalMass, 0.9992);
+  const top = findQuantileIndex(rowMass, totalMass, 0.0008);
+  const bottom = findQuantileIndex(rowMass, totalMass, 0.9992);
+  const horizontalPadding = Math.max(1, Math.round(width * 0.006));
+  const verticalPadding = Math.max(1, Math.round(height * 0.006));
+  const isolationPaddingX = Math.max(2, Math.round(width * 0.018));
+  const isolationPaddingY = Math.max(2, Math.round(height * 0.018));
+  const edgeMinimum = Math.max(2, Math.round(Math.min(width, height) * 0.01));
+  const membership = new Uint8Array(pixelCount);
+  for (const index of bestComponent.indices) membership[index] = 1;
+
+  return {
+    bounds: {
+      left: clamp((left - horizontalPadding) / width, 0, 1),
+      top: clamp((top - verticalPadding) / height, 0, 1),
+      right: clamp((right + horizontalPadding + 1) / width, 0, 1),
+      bottom: clamp((bottom + verticalPadding + 1) / height, 0, 1),
+    },
+    clipping: {
+      top: topEdgeCount >= edgeMinimum,
+      bottom: bottomEdgeCount >= edgeMinimum,
+      left: leftEdgeCount >= edgeMinimum,
+      right: rightEdgeCount >= edgeMinimum,
+    },
+    isolation: {
+      left: Math.max(0, componentMinX - isolationPaddingX),
+      top: Math.max(0, componentMinY - isolationPaddingY),
+      right: Math.min(width - 1, componentMaxX + isolationPaddingX),
+      bottom: Math.min(height - 1, componentMaxY + isolationPaddingY),
+      membership,
+      componentThreshold,
+    },
+  };
+}
+
+function stabilizePersonBounds(previous, next, enabled) {
+  if (!enabled || !previous) return next;
+  const maximumDelta = Math.max(
+    Math.abs(previous.left - next.left),
+    Math.abs(previous.top - next.top),
+    Math.abs(previous.right - next.right),
+    Math.abs(previous.bottom - next.bottom),
+  );
+  const response = maximumDelta > 0.075 ? 0.72 : 0.32;
+  return {
+    left: previous.left + (next.left - previous.left) * response,
+    top: previous.top + (next.top - previous.top) * response,
+    right: previous.right + (next.right - previous.right) * response,
+    bottom: previous.bottom + (next.bottom - previous.bottom) * response,
+  };
+}
+
+function updateMask(result, { stabilize = true } = {}) {
   if (!result) {
     state.isSegmenting = false;
     return;
@@ -690,73 +1110,125 @@ function updateMask(result) {
     const mask = confidenceMask || categoryMask;
 
     if (!mask) {
-      state.isSegmenting = false;
+      handlePersonMaskMiss();
       return;
     }
 
     const width = mask.width;
     const height = mask.height;
+    const pixelCount = width * height;
+    const sourceToken = getMaskSourceToken();
+    const canStabilize =
+      stabilize &&
+      state.sourceType === "video" &&
+      state.maskTemporalValues?.length === pixelCount &&
+      state.maskTemporalWidth === width &&
+      state.maskTemporalHeight === height &&
+      state.maskTemporalSourceToken === sourceToken &&
+      performance.now() - state.maskUpdatedAt < 520;
+    const rawValues = new Float32Array(pixelCount);
+    if (confidenceMask?.getAsFloat32Array) {
+      const values = confidenceMask.getAsFloat32Array();
+      for (let index = 0; index < pixelCount; index += 1) {
+        rawValues[index] = clamp(values[index], 0, 1);
+      }
+    } else {
+      const values = categoryMask.getAsUint8Array();
+      for (let index = 0; index < pixelCount; index += 1) {
+        rawValues[index] = values[index] > 0 ? 1 : 0;
+      }
+    }
+
+    const temporalValues = new Float32Array(pixelCount);
+    for (let index = 0; index < pixelCount; index += 1) {
+      const current = rawValues[index];
+      if (!canStabilize) {
+        temporalValues[index] = current;
+        continue;
+      }
+      const previous = state.maskTemporalValues[index];
+      const difference = Math.abs(current - previous);
+      const response = difference > 0.34 ? 0.76 : 0.38;
+      temporalValues[index] = previous + (current - previous) * response;
+    }
+
+    state.maskTemporalValues = temporalValues;
+    state.maskTemporalWidth = width;
+    state.maskTemporalHeight = height;
+    state.maskTemporalSourceToken = sourceToken;
     state.maskCanvas.width = width;
     state.maskCanvas.height = height;
     const maskContext = state.maskCanvas.getContext("2d");
     const output = maskContext.createImageData(width, height);
-    let minX = width;
-    let minY = height;
-    let maxX = -1;
-    let maxY = -1;
+    const alphaValues = new Float32Array(pixelCount);
 
-    if (confidenceMask?.getAsFloat32Array) {
-      const values = confidenceMask.getAsFloat32Array();
-      for (let index = 0; index < values.length; index += 1) {
-        const confidence = values[index];
-        const normalized = Math.max(0, Math.min(1, (confidence - 0.13) / 0.72));
-        const feathered = normalized * normalized * (3 - 2 * normalized);
-        const alpha = Math.round(feathered * 255);
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = y * width + x;
+        const confidence = temporalValues[index];
+        let refinedConfidence = confidence;
+        if (
+          confidence > 0.025 &&
+          confidence < 0.975 &&
+          x > 0 &&
+          x + 1 < width &&
+          y > 0 &&
+          y + 1 < height
+        ) {
+          const neighborAverage =
+            (temporalValues[index - 1] +
+              temporalValues[index + 1] +
+              temporalValues[index - width] +
+              temporalValues[index + width]) /
+            4;
+          refinedConfidence = confidence * 0.64 + neighborAverage * 0.36;
+        }
+
+        const feathered = smoothStep(0.045, 0.79, refinedConfidence);
+        const alpha =
+          feathered > 0.82
+            ? 1 - (1 - feathered) * 0.48
+            : Math.pow(feathered, 0.88);
+        alphaValues[index] = alpha;
         const pixelIndex = index * 4;
         output.data[pixelIndex] = 255;
         output.data[pixelIndex + 1] = 255;
         output.data[pixelIndex + 2] = 255;
-        output.data[pixelIndex + 3] = alpha;
-        if (alpha > 42) {
-          const x = index % width;
-          const y = Math.floor(index / width);
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
-        }
-      }
-    } else {
-      const values = categoryMask.getAsUint8Array();
-      for (let index = 0; index < values.length; index += 1) {
-        const pixelIndex = index * 4;
-        const isPerson = values[index] > 0;
-        output.data[pixelIndex] = 255;
-        output.data[pixelIndex + 1] = 255;
-        output.data[pixelIndex + 2] = 255;
-        output.data[pixelIndex + 3] = isPerson ? 255 : 0;
-        if (isPerson) {
-          const x = index % width;
-          const y = Math.floor(index / width);
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
-        }
+        output.data[pixelIndex + 3] = Math.round(alpha * 255);
       }
     }
 
-    if (maxX < minX || maxY < minY) {
-      throw new Error("인물 영역을 찾지 못했습니다.");
+    const personRegion = findPrimaryPersonRegion(alphaValues, width, height);
+    if (!personRegion) {
+      handlePersonMaskMiss();
+      return;
+    }
+
+    const isolation = personRegion.isolation;
+    for (let index = 0; index < pixelCount; index += 1) {
+      const x = index % width;
+      const y = Math.floor(index / width);
+      const outsidePrimaryBounds =
+        x < isolation.left ||
+        x > isolation.right ||
+        y < isolation.top ||
+        y > isolation.bottom;
+      const belongsToOtherStrongRegion =
+        alphaValues[index] >= isolation.componentThreshold &&
+        !isolation.membership[index];
+      if (outsidePrimaryBounds || belongsToOtherStrongRegion) {
+        output.data[index * 4 + 3] = 0;
+      }
     }
 
     maskContext.putImageData(output, 0, 0);
-    state.personBounds = {
-      left: minX / width,
-      top: minY / height,
-      right: (maxX + 1) / width,
-      bottom: (maxY + 1) / height,
-    };
+    state.personBounds = stabilizePersonBounds(
+      state.personBounds,
+      personRegion.bounds,
+      canStabilize,
+    );
+    state.personClipping = personRegion.clipping;
+    state.staticMaskAttempts = 0;
     state.maskAvailable = true;
     state.maskUpdatedAt = performance.now();
     updateAiStatus("ready", "AI 인물 분리 켜짐");
@@ -926,23 +1398,44 @@ function runSegmentation(timestamp) {
 
   state.isSegmenting = true;
   state.lastSegmentedAt = timestamp;
-  if (state.sourceType === "image") state.staticMaskRequested = true;
+  if (state.sourceType === "image") {
+    state.staticMaskRequested = true;
+    state.staticMaskAttempts += 1;
+  }
   if (state.sourceType === "video") {
     state.lastVideoTime = cameraVideo.currentTime;
   }
 
+  const generation = state.segmentationGeneration;
+  let settled = false;
   const inferenceTime = Math.max(Math.round(timestamp), state.maskUpdatedAt + 1);
+  const finish = (result) => {
+    if (settled) {
+      closeMaskResources(result);
+      return;
+    }
+    if (generation !== state.segmentationGeneration) {
+      settled = true;
+      closeMaskResources(result);
+      return;
+    }
+    settled = true;
+    updateMask(result, { stabilize: state.sourceType === "video" });
+  };
 
   try {
     const maybeResult = state.segmenter.segmentForVideo(
       source,
       inferenceTime,
-      (result) => updateMask(result),
+      finish,
     );
     if (maybeResult?.categoryMask || maybeResult?.confidenceMasks) {
-      updateMask(maybeResult);
+      finish(maybeResult);
     } else {
       window.setTimeout(() => {
+        if (generation !== state.segmentationGeneration) return;
+        if (settled) return;
+        settled = true;
         state.isSegmenting = false;
         if (state.sourceType === "image" && !state.maskAvailable) {
           state.segmenterState = "fallback";
@@ -991,6 +1484,9 @@ function renderLoop(timestamp) {
 
 function stopCamera({ invalidatePending = true } = {}) {
   if (invalidatePending) state.cameraRequestId += 1;
+  state.segmentationGeneration += 1;
+  state.isSegmenting = false;
+  resetTemporalMask();
   state.stream?.getTracks().forEach((track) => track.stop());
   state.stream = null;
   cameraVideo.srcObject = null;
@@ -1266,6 +1762,29 @@ function getCameraErrorMessage(error) {
   return messages[error?.name] || "카메라를 시작하지 못했어요. 사진 불러오기로 계속할 수 있어요.";
 }
 
+async function tuneCameraTrackForPortrait(track) {
+  if (!track) return;
+  try {
+    if ("contentHint" in track) track.contentHint = "detail";
+    const capabilities = track.getCapabilities?.() || {};
+    const advanced = {};
+    [
+      ["focusMode", "continuous"],
+      ["exposureMode", "continuous"],
+      ["whiteBalanceMode", "continuous"],
+    ].forEach(([name, preferredValue]) => {
+      if (capabilities[name]?.includes?.(preferredValue)) {
+        advanced[name] = preferredValue;
+      }
+    });
+    if (Object.keys(advanced).length) {
+      await track.applyConstraints({ advanced: [advanced] });
+    }
+  } catch (error) {
+    console.info("카메라 자동 초점·노출은 기본 설정을 사용합니다.", error);
+  }
+}
+
 async function startCamera({ allowDeviceFallback = true } = {}) {
   if (state.captureInProgress) return false;
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -1286,8 +1805,8 @@ async function startCamera({ allowDeviceFallback = true } = {}) {
 
   try {
     const videoConstraints = {
-      width: { ideal: 1920 },
-      height: { ideal: 1440 },
+      width: { ideal: 2560 },
+      height: { ideal: 1920 },
       aspectRatio: { ideal: 4 / 3 },
       frameRate: { ideal: 30, max: 60 },
       ...(requestedDeviceId
@@ -1316,6 +1835,12 @@ async function startCamera({ allowDeviceFallback = true } = {}) {
     await cameraVideo.play();
 
     const videoTrack = stream.getVideoTracks()[0];
+    await tuneCameraTrackForPortrait(videoTrack);
+    if (requestId !== state.cameraRequestId) {
+      stream.getTracks().forEach((track) => track.stop());
+      if (cameraVideo.srcObject === stream) cameraVideo.srcObject = null;
+      return false;
+    }
     const trackSettings = videoTrack?.getSettings?.() || {};
     const actualFacingMode = trackSettings.facingMode;
     if (trackSettings.deviceId) {
@@ -1336,6 +1861,10 @@ async function startCamera({ allowDeviceFallback = true } = {}) {
         state.sourceType = null;
         state.maskAvailable = false;
         state.personBounds = null;
+        state.personClipping = null;
+        state.segmentationGeneration += 1;
+        state.isSegmenting = false;
+        resetTemporalMask();
         cameraStage.classList.remove("has-source");
         captureButton.disabled = true;
         switchCameraButton.disabled = true;
@@ -1352,7 +1881,11 @@ async function startCamera({ allowDeviceFallback = true } = {}) {
     state.cameraPausedAfterCapture = false;
     state.maskAvailable = false;
     state.personBounds = null;
+    state.personClipping = null;
+    state.segmentationGeneration += 1;
+    resetTemporalMask();
     state.staticMaskRequested = false;
+    state.staticMaskAttempts = 0;
     state.lastVideoTime = -1;
     cameraStage.classList.add("has-source");
     updateFramingGuidance();
@@ -1493,7 +2026,12 @@ async function usePortraitFile(file) {
     state.mirror = false;
     state.maskAvailable = false;
     state.personBounds = null;
+    state.personClipping = null;
+    state.segmentationGeneration += 1;
+    state.isSegmenting = false;
+    resetTemporalMask();
     state.staticMaskRequested = false;
+    state.staticMaskAttempts = 0;
     cameraStage.classList.add("has-source");
     updateFramingGuidance();
     mirrorButton.disabled = false;
@@ -1635,6 +2173,48 @@ function wait(milliseconds) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
+async function waitForSegmentationIdle(timeout = 900) {
+  const startedAt = performance.now();
+  while (
+    state.isSegmenting &&
+    performance.now() - startedAt < timeout
+  ) {
+    await wait(16);
+  }
+  return !state.isSegmenting;
+}
+
+async function snapshotNextVideoFrame(video, targetCanvas, maxEdge) {
+  await new Promise((resolve) => {
+    let settled = false;
+    let callbackId = 0;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      resolve();
+    };
+    const timeoutId = window.setTimeout(finish, 280);
+
+    if (typeof video.requestVideoFrameCallback === "function") {
+      callbackId = video.requestVideoFrameCallback(finish);
+    } else {
+      window.requestAnimationFrame(finish);
+    }
+
+    window.setTimeout(() => {
+      if (
+        settled &&
+        callbackId &&
+        typeof video.cancelVideoFrameCallback === "function"
+      ) {
+        video.cancelVideoFrameCallback(callbackId);
+      }
+    }, 300);
+  });
+  return snapshotSource(video, targetCanvas, maxEdge);
+}
+
 function throwIfCaptureCancelled(captureId) {
   if (captureId === state.captureSequence) return;
   const error = new Error("촬영이 취소되었습니다.");
@@ -1671,6 +2251,7 @@ function setStudioControlsLocked(locked) {
 function segmentExactFrame(source) {
   if (!state.segmenter) return Promise.resolve(false);
 
+  const generation = state.segmentationGeneration;
   state.isSegmenting = true;
   const inferenceTime = Math.max(
     Math.round(performance.now()),
@@ -1680,9 +2261,18 @@ function segmentExactFrame(source) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (result) => {
-      if (settled) return;
+      if (settled) {
+        closeMaskResources(result);
+        return;
+      }
+      if (generation !== state.segmentationGeneration) {
+        settled = true;
+        closeMaskResources(result);
+        resolve(false);
+        return;
+      }
       settled = true;
-      updateMask(result);
+      updateMask(result, { stabilize: false });
       resolve(Boolean(state.maskAvailable));
     };
 
@@ -1698,6 +2288,7 @@ function segmentExactFrame(source) {
       window.setTimeout(() => {
         if (!settled) {
           settled = true;
+          state.segmentationGeneration += 1;
           state.isSegmenting = false;
           resolve(false);
         }
@@ -1905,6 +2496,10 @@ async function takePhoto() {
   try {
     if (timerSeconds > 0) await runCountdown(timerSeconds, captureId);
     throwIfCaptureCancelled(captureId);
+    if (state.segmenter) {
+      await waitForSegmentationIdle();
+      throwIfCaptureCancelled(captureId);
+    }
     const liveSource = getSource();
     const sourceIsUnchanged =
       sourceTypeAtStart === state.sourceType &&
@@ -1916,21 +2511,28 @@ async function takePhoto() {
 
     const captureSource =
       state.sourceType === "video"
-        ? snapshotSource(liveSource, captureFrameCanvas, 1600)
+        ? await snapshotNextVideoFrame(
+            liveSource,
+            captureFrameCanvas,
+            MAX_CAPTURE_EDGE,
+          )
         : liveSource;
+    throwIfCaptureCancelled(captureId);
     if (state.segmenter) {
+      state.segmentationGeneration += 1;
+      state.isSegmenting = false;
       state.maskAvailable = false;
       state.personBounds = null;
+      state.personClipping = null;
+      resetTemporalMask();
       state.maskCanvas.width = 0;
       state.maskCanvas.height = 0;
       const exactMaskReady = await segmentExactFrame(
-        state.sourceType === "video"
-          ? captureSource
-          : snapshotSource(
-              captureSource,
-              state.imageInferenceCanvas,
-              MAX_STILL_INFERENCE_EDGE,
-            ),
+        snapshotSource(
+          captureSource,
+          state.imageInferenceCanvas,
+          MAX_STILL_INFERENCE_EDGE,
+        ),
       );
       if (!exactMaskReady) {
         throw new Error("촬영 순간의 인물 영역을 정확히 확인하지 못했습니다.");
@@ -1970,6 +2572,12 @@ async function takePhoto() {
       return;
     }
     console.error(error);
+    if (state.segmenter && getSource() && !state.maskAvailable) {
+      state.staticMaskRequested = false;
+      state.staticMaskAttempts = 0;
+      state.lastSegmentedAt = 0;
+      updateAiStatus("loading", "촬영 프레임을 다시 확인하는 중");
+    }
     showToast("사진을 완성하지 못했어요. 잠시 후 다시 촬영해 주세요.");
   } finally {
     state.captureInProgress = false;
