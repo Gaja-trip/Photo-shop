@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run check",
+  "outputDirectory": "public",
+  "rewrites": [
+    {
+      "source": "/booth",
+      "destination": "/booth/index.html"
+    },
+    {
+      "source": "/src/app.js",
+      "destination": "/app.js"
+    },
+    {
+      "source": "/assets/backgrounds/paris-golden-hour.png",
+      "destination": "/paris-golden-hour.png"
+    }
+  ]
+}
