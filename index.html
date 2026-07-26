@@ -8,22 +8,28 @@
       content="카메라로 촬영한 내 모습을 파리 에펠탑 배경에 합성하고 저장·공유하는 브라우저 포토부스"
     />
     <meta name="theme-color" content="#f3ede3" />
-    <title>오늘, 파리 — 인생사진 포토부스</title>
+    <title>오늘, 사진 — 인생사진 포토부스</title>
     <link rel="icon" href="/og.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&amp;family=Noto+Sans+KR:wght@400;500;600;700;800&amp;display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <a class="skip-link" href="#studio">촬영 스튜디오로 바로가기</a>
 
     <header class="site-header">
-      <a class="brand" href="#" aria-label="오늘, 파리 홈">
+      <a class="brand" href="#" aria-label="오늘, 사진 홈">
         <span class="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 40 40" role="img">
             <path d="M20 5.5 11 34.5M20 5.5l9 29M14.4 23h11.2M10 34.5h20M16.4 16h7.2" />
           </svg>
         </span>
         <span>
-          <strong>오늘, 파리</strong>
+          <strong>오늘, 사진</strong>
           <small>VIE EN PHOTO</small>
         </span>
       </a>
@@ -93,7 +99,7 @@
           </div>
         </div>
 
-        <div class="camera-card">
+        <div class="camera-card" id="cameraCard">
           <div class="camera-toolbar">
             <div class="ai-status" id="aiStatus" role="status">
               <span class="ai-status-dot"></span>
@@ -108,6 +114,18 @@
               <button class="icon-button" id="switchCameraButton" type="button" aria-label="전후면 카메라 전환" disabled>
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                   <path d="M20 7v5h-5M4 17v-5h5M6.1 8.5A7 7 0 0 1 18 7l2 2M17.9 15.5A7 7 0 0 1 6 17l-2-2" />
+                </svg>
+              </button>
+              <button
+                class="icon-button camera-mode-exit"
+                id="exitCameraModeButton"
+                type="button"
+                aria-label="전체화면 촬영 종료"
+                title="전체화면 촬영 종료"
+                hidden
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="m6 6 12 12M18 6 6 18" />
                 </svg>
               </button>
             </div>
@@ -293,7 +311,7 @@
     </section>
 
     <footer class="site-footer">
-      <span>오늘, 파리</span>
+      <span>오늘, 사진</span>
       <p>브라우저에서 만드는 나만의 여행 사진 · 얼굴 인식이나 서버 저장을 하지 않습니다.</p>
     </footer>
 

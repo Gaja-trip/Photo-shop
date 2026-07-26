@@ -11,11 +11,11 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     metadataBase,
-    title: "오늘, 파리 — 나만의 인생사진 포토부스",
+    title: "오늘, 사진 — 나만의 인생사진 포토부스",
     description:
       "에펠탑과 자전거가 보이는 파리 배경에서 촬영한 듯한 나만의 4:5 인생사진을 만들어 보세요.",
     openGraph: {
-      title: "오늘, 파리",
+      title: "오늘, 사진",
       description: "카메라를 켜면, 오늘의 배경은 파리.",
       locale: "ko_KR",
       type: "website",
@@ -24,13 +24,13 @@ export async function generateMetadata(): Promise<Metadata> {
           url: "/og.png",
           width: 1731,
           height: 909,
-          alt: "오늘, 파리 웹 포토부스",
+          alt: "오늘, 사진 웹 포토부스",
         },
       ],
     },
     twitter: {
       card: "summary_large_image",
-      title: "오늘, 파리",
+      title: "오늘, 사진",
       description: "카메라를 켜면, 오늘의 배경은 파리.",
       images: ["/og.png"],
     },

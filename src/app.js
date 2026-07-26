@@ -7,6 +7,7 @@ const previewContext = previewCanvas.getContext("2d", {
 });
 const cameraVideo = byId("cameraVideo");
 const portraitSource = byId("portraitSource");
+const cameraCard = byId("cameraCard");
 const cameraStage = byId("cameraStage");
 const aiStatus = byId("aiStatus");
 const captureButton = byId("captureButton");
@@ -18,6 +19,7 @@ const cameraMessage = byId("cameraMessage");
 const cameraSelect = byId("cameraSelect");
 const refreshCamerasButton = byId("refreshCamerasButton");
 const cameraDeviceStatus = byId("cameraDeviceStatus");
+const exitCameraModeButton = byId("exitCameraModeButton");
 const portraitUpload = byId("portraitUpload");
 const backgroundUpload = byId("backgroundUpload");
 const resultDialog = byId("resultDialog");
@@ -85,6 +87,11 @@ const state = {
   sourceWasCamera: false,
   cameraPausedAfterCapture: false,
   cameraRequestId: 0,
+  cameraModeActive: false,
+  nativeFullscreenActive: false,
+  cameraModeScrollY: 0,
+  fullscreenExitInProgress: false,
+  captureSequence: 0,
   toastTimer: 0,
 };
 
@@ -896,6 +903,159 @@ function stopCamera({ invalidatePending = true } = {}) {
   cameraSelect.disabled = true;
 }
 
+function getFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+function updateCameraViewportHeight() {
+  if (!state.cameraModeActive) return;
+  const viewportHeight = window.visualViewport?.height || window.innerHeight;
+  const cameraChromeHeight = viewportHeight <= 650 ? 154 : 220;
+  const stageHeight = Math.max(160, viewportHeight - cameraChromeHeight);
+  document.documentElement.style.setProperty(
+    "--camera-viewport-height",
+    `${Math.round(viewportHeight)}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--camera-stage-width",
+    `${Math.round(stageHeight * 0.8)}px`,
+  );
+  document.documentElement.style.setProperty(
+    "--camera-stage-height",
+    `${Math.round(stageHeight)}px`,
+  );
+}
+
+function activateCameraModeUi() {
+  if (!state.cameraModeActive) {
+    state.cameraModeScrollY = Math.max(0, window.scrollY);
+  }
+  state.cameraModeActive = true;
+  document.body.style.top = `-${state.cameraModeScrollY}px`;
+  document.body.classList.add("is-camera-mode");
+  exitCameraModeButton.hidden = false;
+  updateCameraViewportHeight();
+}
+
+function deactivateCameraModeUi({ restoreScroll = true } = {}) {
+  const scrollY = state.cameraModeScrollY;
+  state.cameraModeActive = false;
+  document.body.classList.remove("is-camera-mode");
+  document.body.style.top = "";
+  exitCameraModeButton.hidden = true;
+  document.documentElement.style.removeProperty("--camera-viewport-height");
+  document.documentElement.style.removeProperty("--camera-stage-width");
+  document.documentElement.style.removeProperty("--camera-stage-height");
+  if (restoreScroll) window.scrollTo(0, scrollY);
+}
+
+function enterCameraMode() {
+  activateCameraModeUi();
+
+  if (getFullscreenElement() === document.documentElement) {
+    state.nativeFullscreenActive = true;
+    return Promise.resolve(true);
+  }
+
+  try {
+    let fullscreenResult;
+    if (document.documentElement.requestFullscreen) {
+      fullscreenResult = document.documentElement.requestFullscreen({
+        navigationUI: "hide",
+      });
+    } else if (document.documentElement.webkitRequestFullscreen) {
+      fullscreenResult = document.documentElement.webkitRequestFullscreen();
+    } else {
+      return Promise.resolve(false);
+    }
+
+    return Promise.resolve(fullscreenResult)
+      .then(() => {
+        state.nativeFullscreenActive =
+          getFullscreenElement() === document.documentElement;
+        return state.nativeFullscreenActive;
+      })
+      .catch((error) => {
+        console.info("브라우저 전체화면 대신 몰입형 촬영 화면을 사용합니다.", error);
+        state.nativeFullscreenActive = false;
+        return false;
+      });
+  } catch (error) {
+    console.info("브라우저 전체화면 대신 몰입형 촬영 화면을 사용합니다.", error);
+    state.nativeFullscreenActive = false;
+    return Promise.resolve(false);
+  }
+}
+
+function cancelPendingCapture() {
+  state.captureSequence += 1;
+  countdownElement.textContent = "";
+  countdownElement.classList.remove("pop");
+  cameraStage.classList.remove("is-counting");
+}
+
+async function exitCameraMode({
+  cancelCapture = true,
+  exitNative = true,
+} = {}) {
+  if (cancelCapture) cancelPendingCapture();
+  if (
+    !state.cameraModeActive &&
+    getFullscreenElement() !== document.documentElement
+  ) {
+    return;
+  }
+  if (state.fullscreenExitInProgress) return;
+
+  state.fullscreenExitInProgress = true;
+  const scrollY = state.cameraModeScrollY;
+  let fullscreenExit = Promise.resolve();
+
+  if (
+    exitNative &&
+    getFullscreenElement() === document.documentElement
+  ) {
+    try {
+      const result = document.exitFullscreen
+        ? document.exitFullscreen()
+        : document.webkitExitFullscreen?.();
+      fullscreenExit = Promise.resolve(result);
+    } catch (error) {
+      console.info("브라우저 전체화면 종료를 완료하지 못했습니다.", error);
+    }
+  }
+
+  deactivateCameraModeUi({ restoreScroll: false });
+  try {
+    await fullscreenExit;
+  } catch (error) {
+    console.info("브라우저 전체화면 종료를 완료하지 못했습니다.", error);
+  } finally {
+    state.nativeFullscreenActive = false;
+    state.fullscreenExitInProgress = false;
+    window.scrollTo(0, scrollY);
+  }
+}
+
+function handleFullscreenChange() {
+  const isOwnFullscreen =
+    getFullscreenElement() === document.documentElement;
+  if (isOwnFullscreen) {
+    state.nativeFullscreenActive = true;
+    return;
+  }
+
+  const ownFullscreenEnded = state.nativeFullscreenActive;
+  state.nativeFullscreenActive = false;
+  if (
+    ownFullscreenEnded &&
+    state.cameraModeActive &&
+    !state.fullscreenExitInProgress
+  ) {
+    void exitCameraMode({ exitNative: false });
+  }
+}
+
 function showCameraMessage(message) {
   cameraMessage.textContent = message;
   cameraMessage.hidden = !message;
@@ -1009,11 +1169,11 @@ function getCameraErrorMessage(error) {
 }
 
 async function startCamera({ allowDeviceFallback = true } = {}) {
-  if (state.captureInProgress) return;
+  if (state.captureInProgress) return false;
   if (!navigator.mediaDevices?.getUserMedia) {
     showCameraMessage("이 브라우저에서는 카메라 촬영을 지원하지 않아요. 사진 불러오기를 이용해 주세요.");
     portraitUpload.click();
-    return;
+    return false;
   }
 
   showCameraMessage("");
@@ -1042,7 +1202,7 @@ async function startCamera({ allowDeviceFallback = true } = {}) {
 
     if (requestId !== state.cameraRequestId) {
       stream.getTracks().forEach((track) => track.stop());
-      return;
+      return false;
     }
 
     state.stream = stream;
@@ -1107,8 +1267,9 @@ async function startCamera({ allowDeviceFallback = true } = {}) {
       }
       updateCaptureReadiness();
     });
+    return true;
   } catch (error) {
-    if (requestId !== state.cameraRequestId) return;
+    if (requestId !== state.cameraRequestId) return false;
     if (
       requestedDeviceId &&
       allowDeviceFallback &&
@@ -1132,7 +1293,20 @@ async function startCamera({ allowDeviceFallback = true } = {}) {
     } else {
       captureButton.disabled = true;
     }
+    return false;
   }
+}
+
+function startCameraExperience() {
+  const fullscreenAttempt = enterCameraMode();
+  const cameraAttempt = startCamera();
+  void Promise.all([fullscreenAttempt, cameraAttempt]).then(
+    async ([, started]) => {
+      if (!started) {
+        await exitCameraMode({ cancelCapture: false });
+      }
+    },
+  );
 }
 
 async function switchCamera() {
@@ -1204,6 +1378,7 @@ async function usePortraitFile(file) {
     return;
   }
 
+  await exitCameraMode({ cancelCapture: false });
   stopCamera();
   captureButton.disabled = true;
   revokePortraitUrl();
@@ -1343,14 +1518,23 @@ function wait(milliseconds) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-async function runCountdown(seconds) {
+function throwIfCaptureCancelled(captureId) {
+  if (captureId === state.captureSequence) return;
+  const error = new Error("촬영이 취소되었습니다.");
+  error.name = "AbortError";
+  throw error;
+}
+
+async function runCountdown(seconds, captureId) {
   cameraStage.classList.add("is-counting");
   for (let number = seconds; number > 0; number -= 1) {
+    throwIfCaptureCancelled(captureId);
     countdownElement.textContent = number;
     countdownElement.classList.remove("pop");
     void countdownElement.offsetWidth;
     countdownElement.classList.add("pop");
     await wait(1000);
+    throwIfCaptureCancelled(captureId);
   }
   countdownElement.textContent = "";
   countdownElement.classList.remove("pop");
@@ -1435,6 +1619,8 @@ function setStep(step) {
 async function takePhoto() {
   if (!getSource() || state.captureInProgress) return;
 
+  const captureId = state.captureSequence + 1;
+  state.captureSequence = captureId;
   state.captureInProgress = true;
   captureButton.disabled = true;
   setStudioControlsLocked(true);
@@ -1444,7 +1630,8 @@ async function takePhoto() {
     state.sourceType === "video" ? state.stream : state.portraitUrl;
 
   try {
-    if (timerSeconds > 0) await runCountdown(timerSeconds);
+    if (timerSeconds > 0) await runCountdown(timerSeconds, captureId);
+    throwIfCaptureCancelled(captureId);
     const liveSource = getSource();
     const sourceIsUnchanged =
       sourceTypeAtStart === state.sourceType &&
@@ -1469,6 +1656,7 @@ async function takePhoto() {
             ),
       );
     }
+    throwIfCaptureCancelled(captureId);
 
     cameraStage.classList.add("is-captured");
     flashElement.classList.remove("is-active");
@@ -1486,19 +1674,28 @@ async function takePhoto() {
     setResultBlob(blob);
     setStep(3);
     await wait(240);
+    throwIfCaptureCancelled(captureId);
 
     if (state.sourceType === "video") {
       stopCamera();
       state.cameraPausedAfterCapture = true;
     }
 
+    await exitCameraMode({ cancelCapture: false });
     resultDialog.showModal();
   } catch (error) {
+    if (error?.name === "AbortError") {
+      setStep(1);
+      return;
+    }
     console.error(error);
     showToast("사진을 완성하지 못했어요. 잠시 후 다시 촬영해 주세요.");
   } finally {
     state.captureInProgress = false;
     setStudioControlsLocked(false);
+    countdownElement.textContent = "";
+    countdownElement.classList.remove("pop");
+    cameraStage.classList.remove("is-counting");
     cameraStage.classList.remove("is-captured");
     switchCameraButton.disabled = !state.stream;
     mirrorButton.disabled = !getSource();
@@ -1516,7 +1713,7 @@ function buildFilename() {
     String(date.getHours()).padStart(2, "0"),
     String(date.getMinutes()).padStart(2, "0"),
   ].join("");
-  return `오늘-파리-${stamp}.jpg`;
+  return `오늘-사진-${stamp}.jpg`;
 }
 
 function downloadPhoto({ quiet = false } = {}) {
@@ -1536,7 +1733,7 @@ async function sharePhoto() {
     type: state.resultBlob.type || "image/jpeg",
   });
   const shareData = {
-    title: "오늘, 파리",
+    title: "오늘, 사진",
     text: "파리에서 만든 나의 인생사진",
     files: [file],
   };
@@ -1572,7 +1769,7 @@ function openEmailApp() {
   showToast("사진을 저장했어요. 메일 작성 화면에서 첨부해 주세요.", 4000);
   const subject = encodeURIComponent("파리에서 만든 인생사진");
   const body = encodeURIComponent(
-    "파리에서 만든 사진을 보내요.\n\n방금 저장된 ‘오늘-파리’ 사진 파일을 이 메일에 첨부해 주세요.",
+    "파리에서 만든 사진을 보내요.\n\n방금 저장된 ‘오늘-사진’ 사진 파일을 이 메일에 첨부해 주세요.",
   );
   window.setTimeout(() => {
     window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
@@ -1591,7 +1788,7 @@ function openSmsApp() {
   downloadPhoto({ quiet: true });
   showToast("사진을 저장했어요. 문자 작성 화면에서 첨부해 주세요.", 4000);
   const message = encodeURIComponent(
-    "파리에서 만든 인생사진을 보내요. 방금 저장된 ‘오늘-파리’ 사진을 첨부해 주세요.",
+    "파리에서 만든 인생사진을 보내요. 방금 저장된 ‘오늘-사진’ 사진을 첨부해 주세요.",
   );
   const separator = /iPhone|iPad|iPod/i.test(navigator.userAgent) ? "&" : "?";
   window.setTimeout(() => {
@@ -1602,12 +1799,37 @@ function openSmsApp() {
 async function prepareRetake() {
   if (resultDialog.open) resultDialog.close();
   setStep(1);
+  cameraStage.scrollIntoView({ behavior: "auto", block: "center" });
 
   if (state.sourceWasCamera) {
-    await startCamera();
+    const fullscreenAttempt = enterCameraMode();
+    const cameraAttempt = startCamera();
+    const [, started] = await Promise.all([
+      fullscreenAttempt,
+      cameraAttempt,
+    ]);
+    if (!started) {
+      await exitCameraMode({ cancelCapture: false });
+    }
   } else {
     state.cameraPausedAfterCapture = false;
     updateCaptureReadiness();
+  }
+}
+
+function closeResult() {
+  if (resultDialog.open) resultDialog.close();
+  setStep(1);
+
+  if (state.sourceWasCamera && !state.stream) {
+    state.sourceType = null;
+    state.maskAvailable = false;
+    state.personBounds = null;
+    cameraStage.classList.remove("has-source");
+    captureButton.disabled = true;
+    mirrorButton.disabled = true;
+    switchCameraButton.disabled = true;
+    updateAiStatus("fallback", "카메라 다시 연결 필요");
   }
 
   cameraStage.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1616,7 +1838,7 @@ async function prepareRetake() {
 function bindControls() {
   bindRealismControls();
   [byId("heroCameraButton"), byId("stageCameraButton")].forEach((button) => {
-    button.addEventListener("click", () => startCamera());
+    button.addEventListener("click", startCameraExperience);
   });
 
   [
@@ -1660,17 +1882,46 @@ function bindControls() {
   byId("emailButton").addEventListener("click", openEmailApp);
   byId("smsButton").addEventListener("click", openSmsApp);
   byId("retakeButton").addEventListener("click", prepareRetake);
-  byId("resultCloseButton").addEventListener("click", prepareRetake);
+  byId("resultCloseButton").addEventListener("click", closeResult);
+  exitCameraModeButton.addEventListener("click", () => {
+    void exitCameraMode();
+  });
 
   resultDialog.addEventListener("cancel", (event) => {
     event.preventDefault();
-    prepareRetake();
+    closeResult();
   });
+
+  document.addEventListener("fullscreenchange", handleFullscreenChange);
+  document.addEventListener(
+    "webkitfullscreenchange",
+    handleFullscreenChange,
+  );
+  document.addEventListener("keydown", (event) => {
+    if (
+      event.key !== "Escape" ||
+      resultDialog.open ||
+      !state.cameraModeActive ||
+      getFullscreenElement() === document.documentElement
+    ) {
+      return;
+    }
+    event.preventDefault();
+    void exitCameraMode();
+  });
+  window.addEventListener("resize", updateCameraViewportHeight);
+  window.addEventListener("orientationchange", updateCameraViewportHeight);
+  window.visualViewport?.addEventListener(
+    "resize",
+    updateCameraViewportHeight,
+  );
 
   window.addEventListener("pagehide", () => {
     const shouldResetCamera =
       state.sourceType === "video" && !state.cameraPausedAfterCapture;
     stopCamera();
+    deactivateCameraModeUi({ restoreScroll: false });
+    state.nativeFullscreenActive = false;
     if (shouldResetCamera) {
       state.sourceType = null;
       state.maskAvailable = false;
@@ -1698,6 +1949,7 @@ function bindControls() {
   });
   window.addEventListener("beforeunload", () => {
     stopCamera();
+    deactivateCameraModeUi({ restoreScroll: false });
     window.cancelAnimationFrame(state.renderHandle);
     revokePortraitUrl();
     revokeCustomBackgroundUrl();
