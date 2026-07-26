@@ -25,8 +25,16 @@ const backgroundUpload = byId("backgroundUpload");
 const resultDialog = byId("resultDialog");
 const resultImage = byId("resultImage");
 const toast = byId("toast");
+const framingFeedback = byId("framingFeedback");
+const driveHeaderStatus = byId("driveHeaderStatus");
+const driveHeaderText = byId("driveHeaderText");
+const driveSaveCard = byId("driveSaveCard");
+const driveSaveStatus = byId("driveSaveStatus");
+const driveSaveDetail = byId("driveSaveDetail");
+const driveRetryButton = byId("driveRetryButton");
 
-const DEFAULT_BACKGROUND_PATH = "/paris-golden-hour.png";
+const DEFAULT_BACKGROUND_PATH = "/backgrounds/paris-golden-hour.webp";
+const DRIVE_UPLOAD_ENDPOINT = "/api/photos";
 const MEDIAPIPE_VERSION = "0.10.35";
 const MEDIAPIPE_MODULE =
   `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/vision_bundle.mjs`;
@@ -93,12 +101,18 @@ const state = {
   fullscreenExitInProgress: false,
   captureSequence: 0,
   toastTimer: 0,
+  framingReady: false,
+  framingReadySince: 0,
+  driveUploadId: "",
+  driveFilename: "",
+  driveUploadPromise: null,
 };
 
 const personLayer = document.createElement("canvas");
 const softMaskLayer = document.createElement("canvas");
 const exportCanvas = document.createElement("canvas");
 const captureFrameCanvas = document.createElement("canvas");
+const backgroundImageCache = new Map([[DEFAULT_BACKGROUND_PATH, defaultBackground]]);
 exportCanvas.width = EXPORT_WIDTH;
 exportCanvas.height = EXPORT_HEIGHT;
 
@@ -316,6 +330,85 @@ function getPersonPlacement(width, height, personBounds) {
     groundY: height * 0.91 + height * state.personOffsetY,
     subjectWidth: width * 0.46 * scale,
   };
+}
+
+function setFramingFeedback(mode, message) {
+  if (!framingFeedback) return;
+  framingFeedback.classList.toggle("is-ready", mode === "ready");
+  framingFeedback.classList.toggle("is-warning", mode === "warning");
+  const label = framingFeedback.querySelector("span");
+  if (label) label.textContent = message;
+}
+
+function updateFramingGuidance() {
+  if (!getSource() || !state.personBounds) {
+    state.framingReady = false;
+    state.framingReadySince = 0;
+    setFramingFeedback(
+      "waiting",
+      "표시선에 서서 머리부터 발끝까지 맞춰주세요",
+    );
+    return;
+  }
+
+  const source = getSource();
+  const sourceSize = getSourceSize(source);
+  const sourceCrop = getCoverCrop(
+    sourceSize.width,
+    sourceSize.height,
+    PREVIEW_WIDTH,
+    PREVIEW_HEIGHT,
+  );
+  const personBounds = getLayerPersonBounds(
+    sourceCrop,
+    sourceSize,
+    PREVIEW_WIDTH,
+    PREVIEW_HEIGHT,
+  );
+
+  if (!personBounds) {
+    state.framingReady = false;
+    setFramingFeedback("waiting", "전신이 보이도록 약 1.5m 뒤에 서주세요");
+    return;
+  }
+
+  const placement = getPersonPlacement(
+    PREVIEW_WIDTH,
+    PREVIEW_HEIGHT,
+    personBounds,
+  );
+  const outputTop =
+    (placement.y + personBounds.top * state.personScale) / PREVIEW_HEIGHT;
+  const outputHeight =
+    (personBounds.height * state.personScale) / PREVIEW_HEIGHT;
+  const sourceClipped =
+    state.personBounds.top <= 0.018 ||
+    state.personBounds.bottom >= 0.985 ||
+    state.personBounds.left <= 0.018 ||
+    state.personBounds.right >= 0.982;
+
+  let mode = "warning";
+  let message = "";
+  if (sourceClipped || outputTop < 0.085 || outputHeight > 0.89) {
+    message = "반걸음 뒤로 이동해 머리와 발끝을 모두 보여주세요";
+  } else if (outputTop > 0.235 || outputHeight < 0.7) {
+    message = "반걸음 앞으로 이동해 실루엣에 몸을 맞춰주세요";
+  } else {
+    const now = performance.now();
+    if (!state.framingReadySince) state.framingReadySince = now;
+    const stable = now - state.framingReadySince >= 700;
+    state.framingReady = stable;
+    mode = stable ? "ready" : "waiting";
+    message = stable
+      ? "좋아요 — 그 자리에서 정면을 보고 촬영하세요"
+      : "구도가 맞았어요 — 잠시 그대로 서주세요";
+    setFramingFeedback(mode, message);
+    return;
+  }
+
+  state.framingReady = false;
+  state.framingReadySince = 0;
+  setFramingFeedback(mode, message);
 }
 
 function drawGroundingShadow(context, width, height, placement) {
@@ -668,6 +761,7 @@ function updateMask(result) {
     state.maskUpdatedAt = performance.now();
     updateAiStatus("ready", "AI 인물 분리 켜짐");
     updateCaptureReadiness();
+    updateFramingGuidance();
   } catch (error) {
     console.warn("인물 마스크를 처리하지 못해 소프트 합성으로 전환합니다.", error);
     state.maskAvailable = false;
@@ -686,6 +780,7 @@ function updateMask(result) {
       updateAiStatus("fallback", "소프트 인물 합성");
       updateCaptureReadiness();
     }
+    updateFramingGuidance();
   } finally {
     closeMaskResources(result);
     state.isSegmenting = false;
@@ -901,6 +996,9 @@ function stopCamera({ invalidatePending = true } = {}) {
   cameraVideo.srcObject = null;
   switchCameraButton.disabled = true;
   cameraSelect.disabled = true;
+  state.framingReady = false;
+  state.framingReadySince = 0;
+  updateFramingGuidance();
 }
 
 function getFullscreenElement() {
@@ -910,7 +1008,7 @@ function getFullscreenElement() {
 function updateCameraViewportHeight() {
   if (!state.cameraModeActive) return;
   const viewportHeight = window.visualViewport?.height || window.innerHeight;
-  const cameraChromeHeight = viewportHeight <= 650 ? 154 : 220;
+  const cameraChromeHeight = viewportHeight <= 650 ? 154 : 182;
   const stageHeight = Math.max(160, viewportHeight - cameraChromeHeight);
   document.documentElement.style.setProperty(
     "--camera-viewport-height",
@@ -1188,9 +1286,10 @@ async function startCamera({ allowDeviceFallback = true } = {}) {
 
   try {
     const videoConstraints = {
-      width: { ideal: 1280 },
-      height: { ideal: 960 },
+      width: { ideal: 1920 },
+      height: { ideal: 1440 },
       aspectRatio: { ideal: 4 / 3 },
+      frameRate: { ideal: 30, max: 60 },
       ...(requestedDeviceId
         ? { deviceId: { exact: requestedDeviceId } }
         : { facingMode: { ideal: state.facingMode } }),
@@ -1256,6 +1355,7 @@ async function startCamera({ allowDeviceFallback = true } = {}) {
     state.staticMaskRequested = false;
     state.lastVideoTime = -1;
     cameraStage.classList.add("has-source");
+    updateFramingGuidance();
     mirrorButton.disabled = false;
     mirrorButton.setAttribute("aria-pressed", String(state.mirror));
     updateAiStatus("loading", "AI 인물 분리 준비 중");
@@ -1395,6 +1495,7 @@ async function usePortraitFile(file) {
     state.personBounds = null;
     state.staticMaskRequested = false;
     cameraStage.classList.add("has-source");
+    updateFramingGuidance();
     mirrorButton.disabled = false;
     mirrorButton.setAttribute("aria-pressed", "false");
     switchCameraButton.disabled = true;
@@ -1423,13 +1524,13 @@ function revokeCustomBackgroundUrl() {
 }
 
 function selectBackgroundButton(selectedButton) {
-  document.querySelectorAll(".background-option").forEach((button) => {
-    const isSelected = button === selectedButton;
-    button.classList.toggle("is-selected", isSelected);
-    if (button.hasAttribute("data-tone")) {
+  document
+    .querySelectorAll(".background-option, #backgroundUploadButton")
+    .forEach((button) => {
+      const isSelected = button === selectedButton;
+      button.classList.toggle("is-selected", isSelected);
       button.setAttribute("aria-pressed", String(isSelected));
-    }
-  });
+    });
 }
 
 async function useBackgroundFile(file) {
@@ -1456,16 +1557,11 @@ async function useBackgroundFile(file) {
     state.backgroundTone = "custom";
 
     const uploadButton = byId("backgroundUploadButton");
-    const thumb = uploadButton.querySelector(".background-thumb");
-    thumb.replaceChildren();
-    const thumbnailImage = document.createElement("img");
-    thumbnailImage.src = state.customBackgroundUrl;
-    thumbnailImage.alt = "";
-    thumb.appendChild(thumbnailImage);
-    const check = document.createElement("i");
-    check.textContent = "✓";
-    check.setAttribute("aria-hidden", "true");
-    thumb.appendChild(check);
+    uploadButton.classList.add("has-preview");
+    uploadButton.style.setProperty(
+      "--custom-background",
+      `url("${state.customBackgroundUrl}")`,
+    );
     uploadButton.querySelector("strong").textContent = "내 배경";
     uploadButton.querySelector("small").textContent = file.name;
     selectBackgroundButton(uploadButton);
@@ -1475,11 +1571,30 @@ async function useBackgroundFile(file) {
   }
 }
 
-function selectBuiltInBackground(button) {
+async function selectBuiltInBackground(button) {
   if (state.captureInProgress) return;
-  state.backgroundImage = defaultBackground;
-  state.backgroundTone = button.dataset.tone;
-  selectBackgroundButton(button);
+  const path = button.dataset.background;
+  if (!path) return;
+
+  button.disabled = true;
+  try {
+    let image = backgroundImageCache.get(path);
+    if (!image) {
+      image = new Image();
+      image.decoding = "async";
+      image.src = path;
+      backgroundImageCache.set(path, image);
+    }
+    await waitForImage(image);
+    state.backgroundImage = image;
+    state.backgroundTone = button.dataset.tone || "golden";
+    selectBackgroundButton(button);
+  } catch {
+    backgroundImageCache.delete(path);
+    showToast("선택한 배경을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function selectLook(button) {
@@ -1500,12 +1615,14 @@ function bindRealismControls() {
   personScale.addEventListener("input", () => {
     state.personScale = Number(personScale.value) / 100;
     byId("personScaleValue").textContent = `${personScale.value}%`;
+    updateFramingGuidance();
   });
 
   personHeight.addEventListener("input", () => {
     state.personOffsetY = Number(personHeight.value) / 100;
     const prefix = Number(personHeight.value) > 0 ? "+" : "";
     byId("personHeightValue").textContent = `${prefix}${personHeight.value}`;
+    updateFramingGuidance();
   });
 
   shadowStrength.addEventListener("input", () => {
@@ -1544,7 +1661,7 @@ async function runCountdown(seconds, captureId) {
 function setStudioControlsLocked(locked) {
   document
     .querySelectorAll(
-      ".background-option, .look-option, .realism-tuning input, #timerSelect, #uploadShortcut, #mirrorButton, #switchCameraButton, #cameraSelect, #refreshCamerasButton",
+      ".background-option, #backgroundUploadButton, .look-option, .realism-tuning input, #timerSelect, #uploadShortcut, #mirrorButton, #switchCameraButton, #cameraSelect, #refreshCamerasButton",
     )
     .forEach((control) => {
       control.disabled = locked;
@@ -1607,7 +1724,163 @@ function setResultBlob(blob) {
   if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
   state.resultBlob = blob;
   state.resultUrl = URL.createObjectURL(blob);
+  state.driveUploadId =
+    crypto.randomUUID?.() ||
+    `${Date.now()}-${Math.random().toString(36).slice(2)}-photo`;
+  state.driveFilename = buildFilename();
+  state.driveUploadPromise = null;
   resultImage.src = state.resultUrl;
+  setDriveUiState(
+    "idle",
+    "Google Drive 자동 저장 대기",
+    "촬영본을 Photo-Mix 폴더에 안전하게 보관할 준비가 됐어요.",
+  );
+}
+
+function setDriveUiState(mode, title, detail, { retry = false } = {}) {
+  const headerLabels = {
+    idle: "Drive 자동 저장 대기",
+    saving: "Drive 저장 중",
+    success: "Drive 저장 완료",
+    error: "Drive 저장 실패",
+    setup: "Drive 연결 필요",
+  };
+
+  if (driveHeaderStatus) driveHeaderStatus.dataset.state = mode;
+  if (driveHeaderText) {
+    driveHeaderText.textContent = headerLabels[mode] || headerLabels.idle;
+  }
+  if (driveSaveCard) driveSaveCard.dataset.state = mode;
+  if (driveSaveStatus) driveSaveStatus.textContent = title;
+  if (driveSaveDetail) driveSaveDetail.textContent = detail;
+  if (driveRetryButton) driveRetryButton.hidden = !retry;
+}
+
+async function parseJsonResponse(response) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
+
+async function uploadPhotoToDrive({ manualRetry = false } = {}) {
+  if (!state.resultBlob) return false;
+  if (state.driveUploadPromise && !manualRetry) {
+    return state.driveUploadPromise;
+  }
+
+  const upload = async () => {
+    const retryDelays = [0, 800, 2000];
+    setDriveUiState(
+      "saving",
+      "Google Drive에 저장하는 중",
+      "Photo-Mix 폴더로 촬영본을 안전하게 전송하고 있어요.",
+    );
+
+    for (let attempt = 0; attempt < retryDelays.length; attempt += 1) {
+      if (retryDelays[attempt]) await wait(retryDelays[attempt]);
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 25000);
+
+      try {
+        const response = await fetch(DRIVE_UPLOAD_ENDPOINT, {
+          method: "POST",
+          headers: {
+            "Content-Type": state.resultBlob.type || "image/jpeg",
+            "X-Upload-Id": state.driveUploadId,
+            "X-Photo-Filename": encodeURIComponent(state.driveFilename),
+          },
+          body: state.resultBlob,
+          signal: controller.signal,
+        });
+        const data = await parseJsonResponse(response);
+
+        if (response.ok && data.ok) {
+          setDriveUiState(
+            "success",
+            "Google Drive 저장 완료",
+            `${data.name || state.driveFilename} · Photo-Mix 폴더`,
+          );
+          showToast("촬영한 사진을 Google Drive에 자동 저장했어요.");
+          return true;
+        }
+
+        if (data.code === "DRIVE_NOT_CONFIGURED") {
+          setDriveUiState(
+            "setup",
+            "Google Drive 연결 설정이 필요해요",
+            "폴더 소유자 권한으로 한 번 연결하면 다음 촬영부터 자동 저장됩니다.",
+            { retry: true },
+          );
+          return false;
+        }
+
+        const retryable =
+          response.status === 408 ||
+          response.status === 429 ||
+          response.status >= 500;
+        if (!retryable || attempt === retryDelays.length - 1) {
+          throw Object.assign(new Error(data.message || "Drive upload failed"), {
+            retryable: false,
+          });
+        }
+      } catch (error) {
+        const retryable =
+          error?.name === "AbortError" ||
+          error?.name === "TypeError" ||
+          error?.retryable !== false;
+        if (!retryable || attempt === retryDelays.length - 1) {
+          console.warn("Google Drive 자동 저장을 완료하지 못했습니다.", error);
+          setDriveUiState(
+            "error",
+            "Google Drive 저장에 실패했어요",
+            "사진은 이 화면에 그대로 있어요. 연결을 확인한 뒤 다시 시도해 주세요.",
+            { retry: true },
+          );
+          return false;
+        }
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+
+    return false;
+  };
+
+  state.driveUploadPromise = upload().finally(() => {
+    state.driveUploadPromise = null;
+  });
+  return state.driveUploadPromise;
+}
+
+async function checkDriveConnection() {
+  try {
+    const response = await fetch(DRIVE_UPLOAD_ENDPOINT, {
+      method: "GET",
+      cache: "no-store",
+    });
+    const data = await parseJsonResponse(response);
+    if (response.ok && data.configured) {
+      setDriveUiState(
+        "idle",
+        "Google Drive 자동 저장 준비 완료",
+        "촬영 후 Photo-Mix 폴더에 자동으로 저장됩니다.",
+      );
+      return;
+    }
+  } catch {
+    // The camera and local save flow remain available without Drive.
+  }
+
+  setDriveUiState(
+    "setup",
+    "Google Drive 연결 설정이 필요해요",
+    "사진 촬영과 기기 저장은 그대로 사용할 수 있습니다.",
+    { retry: Boolean(state.resultBlob) },
+  );
 }
 
 function setStep(step) {
@@ -1646,7 +1919,11 @@ async function takePhoto() {
         ? snapshotSource(liveSource, captureFrameCanvas, 1600)
         : liveSource;
     if (state.segmenter) {
-      await segmentExactFrame(
+      state.maskAvailable = false;
+      state.personBounds = null;
+      state.maskCanvas.width = 0;
+      state.maskCanvas.height = 0;
+      const exactMaskReady = await segmentExactFrame(
         state.sourceType === "video"
           ? captureSource
           : snapshotSource(
@@ -1655,6 +1932,9 @@ async function takePhoto() {
               MAX_STILL_INFERENCE_EDGE,
             ),
       );
+      if (!exactMaskReady) {
+        throw new Error("촬영 순간의 인물 영역을 정확히 확인하지 못했습니다.");
+      }
     }
     throwIfCaptureCancelled(captureId);
 
@@ -1683,6 +1963,7 @@ async function takePhoto() {
 
     await exitCameraMode({ cancelCapture: false });
     resultDialog.showModal();
+    void uploadPhotoToDrive();
   } catch (error) {
     if (error?.name === "AbortError") {
       setStep(1);
@@ -1712,6 +1993,7 @@ function buildFilename() {
     "-",
     String(date.getHours()).padStart(2, "0"),
     String(date.getMinutes()).padStart(2, "0"),
+    String(date.getSeconds()).padStart(2, "0"),
   ].join("");
   return `오늘-사진-${stamp}.jpg`;
 }
@@ -1865,7 +2147,9 @@ function bindControls() {
   });
 
   document.querySelectorAll(".background-option[data-tone]").forEach((button) => {
-    button.addEventListener("click", () => selectBuiltInBackground(button));
+    button.addEventListener("click", () => {
+      void selectBuiltInBackground(button);
+    });
   });
 
   document.querySelectorAll(".look-option").forEach((button) => {
@@ -1883,8 +2167,19 @@ function bindControls() {
   byId("smsButton").addEventListener("click", openSmsApp);
   byId("retakeButton").addEventListener("click", prepareRetake);
   byId("resultCloseButton").addEventListener("click", closeResult);
+  driveRetryButton?.addEventListener("click", () => {
+    void uploadPhotoToDrive({ manualRetry: true });
+  });
   exitCameraModeButton.addEventListener("click", () => {
     void exitCameraMode();
+  });
+
+  document.querySelectorAll(".site-nav > a[href^='#']").forEach((link) => {
+    link.addEventListener("click", () => {
+      document.querySelectorAll(".site-nav > a").forEach((item) => {
+        item.classList.toggle("is-active", item === link);
+      });
+    });
   });
 
   resultDialog.addEventListener("cancel", (event) => {
@@ -1964,6 +2259,7 @@ function bindControls() {
 
 async function initialize() {
   bindControls();
+  void checkDriveConnection();
   await refreshCameraDevices();
   try {
     await waitForImage(defaultBackground);

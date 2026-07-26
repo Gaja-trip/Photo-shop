@@ -2,13 +2,16 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
     <meta
       name="description"
-      content="카메라로 촬영한 내 모습을 파리 에펠탑 배경에 합성하고 저장·공유하는 브라우저 포토부스"
+      content="카메라로 촬영한 내 모습을 파리의 장면에 자연스럽게 합성하고 Google Drive에 보관하는 브라우저 포토부스"
     />
-    <meta name="theme-color" content="#f3ede3" />
-    <title>오늘, 사진 — 인생사진 포토부스</title>
+    <meta name="theme-color" content="#f4efe7" />
+    <title>오늘, 사진 — 파리 인생사진 스튜디오</title>
     <link rel="icon" href="/og.png" type="image/png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -22,77 +25,42 @@
     <a class="skip-link" href="#studio">촬영 스튜디오로 바로가기</a>
 
     <header class="site-header">
-      <a class="brand" href="#" aria-label="오늘, 사진 홈">
+      <a class="brand" href="#studio" aria-label="오늘, 사진 촬영 화면">
         <span class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 40 40" role="img">
+          <svg viewBox="0 0 40 40">
             <path d="M20 5.5 11 34.5M20 5.5l9 29M14.4 23h11.2M10 34.5h20M16.4 16h7.2" />
           </svg>
         </span>
         <span>
           <strong>오늘, 사진</strong>
-          <small>VIE EN PHOTO</small>
+          <small>VIE EN PHOTO · PARIS</small>
         </span>
       </a>
-      <div class="header-note">
-        <span class="status-dot" aria-hidden="true"></span>
-        사진은 이 기기 안에서만 처리돼요
-      </div>
+
+      <nav class="site-nav" aria-label="주요 메뉴">
+        <a class="is-active" href="#studio">촬영</a>
+        <a href="#backgroundsPanel">배경</a>
+        <a href="#shootingGuidePanel">촬영 안내</a>
+        <a
+          href="https://drive.google.com/drive/folders/1T9pwEsFZaNMPB8GldEg6NGPXoggxUdnG?usp=sharing"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          보관함
+        </a>
+        <span class="drive-pill" id="driveHeaderStatus" data-state="idle">
+          <i aria-hidden="true"></i>
+          <span id="driveHeaderText">Drive 자동 저장 대기</span>
+        </span>
+      </nav>
     </header>
 
-    <main class="page-shell">
-      <section class="intro-panel" aria-labelledby="intro-title">
-        <p class="eyebrow"><span>PARIS PHOTO BOOTH</span><span>ÉDITION 01</span></p>
-        <h1 id="intro-title">오늘의 배경은,<br /><em>파리.</em></h1>
-        <p class="intro-copy">
-          에펠탑을 등지고 자전거가 스쳐 가는 아침. 카메라만 켜면 그 장면 속에 내가
-          자연스럽게 들어갑니다.
-        </p>
-
-        <div class="quick-start">
-          <button class="button button-primary button-large" id="heroCameraButton" type="button">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6H8l1.1-1.5h5.8L16 6h1.5A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-8Z" />
-              <circle cx="12" cy="12.5" r="3.3" />
-            </svg>
-            카메라로 시작
-          </button>
-          <button class="button button-ghost button-large" id="heroUploadButton" type="button">
-            사진 불러오기
-          </button>
-        </div>
-
-        <ul class="feature-list" aria-label="주요 특징">
-          <li>
-            <span class="feature-number">01</span>
-            <span><strong>AI 인물 분리</strong><small>배경만 자연스럽게 교체</small></span>
-          </li>
-          <li>
-            <span class="feature-number">02</span>
-            <span><strong>4:5 인생사진</strong><small>피드에 바로 쓰는 비율</small></span>
-          </li>
-          <li>
-            <span class="feature-number">03</span>
-            <span><strong>한 번에 공유</strong><small>카카오톡·메일·문자 앱</small></span>
-          </li>
-        </ul>
-
-        <div class="privacy-card">
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            <path d="M7 10V7a5 5 0 0 1 10 0v3M6 10h12v10H6z" />
-          </svg>
-          <p>
-            <strong>사진은 서버에 올라가지 않아요.</strong>
-            촬영·합성은 브라우저에서 처리되며, 사용자가 저장하거나 공유할 때만 기기 밖으로
-            이동합니다.
-          </p>
-        </div>
-      </section>
-
-      <section class="studio-panel" id="studio" aria-labelledby="studio-title">
+    <main class="app-shell" id="studio">
+      <section class="camera-workspace" aria-labelledby="studio-title">
         <div class="studio-heading">
           <div>
             <p class="section-kicker">YOUR MOMENT IN PARIS</p>
-            <h2 id="studio-title">장면을 고르고, 포즈를 잡아보세요</h2>
+            <h1 id="studio-title">파리에서, 가장 나다운 한 장</h1>
           </div>
           <div class="step-indicator" aria-label="현재 단계">
             <span class="is-active">1</span><i></i><span>2</span><i></i><span>3</span>
@@ -106,12 +74,24 @@
               <span>인물 분리 준비</span>
             </div>
             <div class="toolbar-actions">
-              <button class="icon-button" id="mirrorButton" type="button" aria-label="좌우 반전" aria-pressed="true">
+              <button
+                class="icon-button"
+                id="mirrorButton"
+                type="button"
+                aria-label="좌우 반전"
+                aria-pressed="true"
+              >
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                   <path d="M8 5 3 12l5 7M16 5l5 7-5 7M12 4v16" />
                 </svg>
               </button>
-              <button class="icon-button" id="switchCameraButton" type="button" aria-label="전후면 카메라 전환" disabled>
+              <button
+                class="icon-button"
+                id="switchCameraButton"
+                type="button"
+                aria-label="전후면 카메라 전환"
+                disabled
+              >
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                   <path d="M20 7v5h-5M4 17v-5h5M6.1 8.5A7 7 0 0 1 18 7l2 2M17.9 15.5A7 7 0 0 1 6 17l-2-2" />
                 </svg>
@@ -147,17 +127,25 @@
           </div>
 
           <div class="camera-stage" id="cameraStage">
-            <canvas id="previewCanvas" width="720" height="900" aria-label="촬영 미리보기"></canvas>
+            <canvas
+              id="previewCanvas"
+              width="720"
+              height="900"
+              aria-label="파리 배경과 합성된 촬영 미리보기"
+            ></canvas>
             <video id="cameraVideo" autoplay muted playsinline aria-hidden="true"></video>
             <img id="portraitSource" alt="" aria-hidden="true" />
 
             <div class="stage-vignette" aria-hidden="true"></div>
             <div class="pose-guide" id="poseGuide" aria-hidden="true">
-              <svg viewBox="0 0 240 420">
-                <ellipse cx="120" cy="75" rx="42" ry="52" />
-                <path d="M80 135c-22 37-30 100-24 177M160 135c22 37 30 100 24 177M82 139c20 21 56 21 76 0M69 312l-16 90M171 312l16 90" />
-              </svg>
-              <span>실루엣 안에 서면 더 자연스러워요</span>
+              <span class="pose-head"></span>
+              <span class="pose-body"></span>
+              <span class="pose-ground"></span>
+            </div>
+
+            <div class="framing-feedback" id="framingFeedback" role="status" aria-live="polite">
+              <strong>1.5m</strong>
+              <span>표시선에 서서 머리부터 발끝까지 맞춰주세요</span>
             </div>
 
             <div class="empty-state" id="emptyState">
@@ -167,11 +155,15 @@
                   <circle cx="16" cy="17" r="5" />
                 </svg>
               </span>
-              <strong>파리에서의 한 컷을 준비했어요</strong>
-              <p>카메라 영상은 외부로 전송되지 않습니다.</p>
+              <strong>카메라를 켜고 파리 안으로 들어가세요</strong>
+              <p>약 1.5m 거리에서 전신을 맞추면 가장 자연스러워요.</p>
               <div class="empty-actions">
-                <button class="button button-light" id="stageCameraButton" type="button">카메라 켜기</button>
-                <button class="text-button" id="stageUploadButton" type="button">사진 불러오기</button>
+                <button class="button button-light" id="stageCameraButton" type="button">
+                  카메라 켜기
+                </button>
+                <button class="text-button" id="stageUploadButton" type="button">
+                  사진 불러오기
+                </button>
               </div>
             </div>
 
@@ -184,7 +176,7 @@
                 <path d="M12 21s6-5.3 6-11a6 6 0 1 0-12 0c0 5.7 6 11 6 11Z" />
                 <circle cx="12" cy="10" r="2" />
               </svg>
-              PARIS · 07:42
+              PARIS · TODAY
             </div>
           </div>
 
@@ -197,7 +189,13 @@
                 <option value="5">5초</option>
               </select>
             </label>
-            <button class="shutter-button" id="captureButton" type="button" aria-label="사진 촬영" disabled>
+            <button
+              class="shutter-button"
+              id="captureButton"
+              type="button"
+              aria-label="사진 촬영"
+              disabled
+            >
               <span></span>
             </button>
             <button class="upload-shortcut" id="uploadShortcut" type="button">
@@ -207,79 +205,194 @@
               사진
             </button>
           </div>
-
-          <details class="external-camera-help">
-            <summary>GoPro · 외장 카메라 연결 안내</summary>
-            <p>
-              노트북 카메라와 USB 웹캠은 위 목록에서 바로 선택할 수 있어요. GoPro는
-              <strong>USB 웹캠 모드</strong> 또는 <strong>HDMI 캡처카드</strong>로 컴퓨터에
-              영상 장치로 연결한 뒤 ‘다시 찾기’를 눌러 주세요. 블루투스 연결만으로는 브라우저에
-              영상이 전달되지 않습니다.
-            </p>
-          </details>
         </div>
+      </section>
 
-        <div class="control-section">
-          <div class="control-heading">
+      <aside class="control-rail" aria-label="촬영 설정">
+        <section class="control-panel background-panel" id="backgroundsPanel">
+          <div class="panel-heading">
             <div>
-              <span class="control-number">01</span>
-              <h3>배경 선택</h3>
+              <span>01</span>
+              <h2>배경 선택</h2>
             </div>
-            <p>다른 분위기의 파리 또는 내 배경을 골라보세요.</p>
+            <p>10개의 파리 장면 중 오늘의 분위기를 고르세요.</p>
           </div>
+
           <div class="background-grid" id="backgroundGrid">
-            <button class="background-option is-selected" type="button" data-tone="golden" aria-pressed="true">
-              <span class="background-thumb tone-golden">
-                <img src="./assets/backgrounds/paris-golden-hour.png" alt="" />
-                <i aria-hidden="true">✓</i>
-              </span>
-              <span><strong>골든 파리</strong><small>Golden hour</small></span>
-            </button>
-            <button class="background-option" type="button" data-tone="film" aria-pressed="false">
-              <span class="background-thumb tone-film">
-                <img src="./assets/backgrounds/paris-golden-hour.png" alt="" />
-                <i aria-hidden="true">✓</i>
-              </span>
-              <span><strong>파리 필름</strong><small>Soft analog</small></span>
-            </button>
-            <button class="background-option" type="button" data-tone="rose" aria-pressed="false">
-              <span class="background-thumb tone-rose">
-                <img src="./assets/backgrounds/paris-golden-hour.png" alt="" />
-                <i aria-hidden="true">✓</i>
-              </span>
-              <span><strong>로즈 마탱</strong><small>Rosy morning</small></span>
-            </button>
-            <button class="background-option background-upload" id="backgroundUploadButton" type="button">
+            <button
+              class="background-option is-selected"
+              type="button"
+              data-background="/backgrounds/paris-golden-hour.webp"
+              data-tone="golden"
+              aria-label="에펠 골든 배경"
+              aria-pressed="true"
+            >
               <span class="background-thumb">
-                <svg aria-hidden="true" viewBox="0 0 32 32">
-                  <path d="M16 6v20M6 16h20" />
-                </svg>
+                <img src="/backgrounds/thumbs/paris-golden-hour.webp" alt="" />
+                <i aria-hidden="true">✓</i>
               </span>
-              <span><strong>내 배경</strong><small>Upload</small></span>
+              <strong>에펠 골든</strong>
+            </button>
+            <button
+              class="background-option"
+              type="button"
+              data-background="/backgrounds/paris-seine-morning.webp"
+              data-tone="golden"
+              aria-label="세느 아침 배경"
+              aria-pressed="false"
+            >
+              <span class="background-thumb">
+                <img src="/backgrounds/thumbs/paris-seine-morning.webp" alt="" loading="lazy" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <strong>세느 아침</strong>
+            </button>
+            <button
+              class="background-option"
+              type="button"
+              data-background="/backgrounds/paris-montmartre.webp"
+              data-tone="rose"
+              aria-label="몽마르트 골목 배경"
+              aria-pressed="false"
+            >
+              <span class="background-thumb">
+                <img src="/backgrounds/thumbs/paris-montmartre.webp" alt="" loading="lazy" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <strong>몽마르트</strong>
+            </button>
+            <button
+              class="background-option"
+              type="button"
+              data-background="/backgrounds/paris-louvre-blue-hour.webp"
+              data-tone="film"
+              aria-label="루브르 블루아워 배경"
+              aria-pressed="false"
+            >
+              <span class="background-thumb">
+                <img src="/backgrounds/thumbs/paris-louvre-blue-hour.webp" alt="" loading="lazy" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <strong>루브르</strong>
+            </button>
+            <button
+              class="background-option"
+              type="button"
+              data-background="/backgrounds/paris-arc-sunrise.webp"
+              data-tone="golden"
+              aria-label="개선문 일출 배경"
+              aria-pressed="false"
+            >
+              <span class="background-thumb">
+                <img src="/backgrounds/thumbs/paris-arc-sunrise.webp" alt="" loading="lazy" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <strong>개선문</strong>
+            </button>
+            <button
+              class="background-option"
+              type="button"
+              data-background="/backgrounds/paris-luxembourg-garden.webp"
+              data-tone="golden"
+              aria-label="뤽상부르 정원 배경"
+              aria-pressed="false"
+            >
+              <span class="background-thumb">
+                <img src="/backgrounds/thumbs/paris-luxembourg-garden.webp" alt="" loading="lazy" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <strong>정원 산책</strong>
+            </button>
+            <button
+              class="background-option"
+              type="button"
+              data-background="/backgrounds/paris-rainy-cafe.webp"
+              data-tone="film"
+              aria-label="비 오는 카페 거리 배경"
+              aria-pressed="false"
+            >
+              <span class="background-thumb">
+                <img src="/backgrounds/thumbs/paris-rainy-cafe.webp" alt="" loading="lazy" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <strong>비 오는 카페</strong>
+            </button>
+            <button
+              class="background-option"
+              type="button"
+              data-background="/backgrounds/paris-eiffel-night.webp"
+              data-tone="film"
+              aria-label="에펠 야경 배경"
+              aria-pressed="false"
+            >
+              <span class="background-thumb">
+                <img src="/backgrounds/thumbs/paris-eiffel-night.webp" alt="" loading="lazy" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <strong>에펠 야경</strong>
+            </button>
+            <button
+              class="background-option"
+              type="button"
+              data-background="/backgrounds/paris-cherry-blossom.webp"
+              data-tone="rose"
+              aria-label="벚꽃 에펠 배경"
+              aria-pressed="false"
+            >
+              <span class="background-thumb">
+                <img src="/backgrounds/thumbs/paris-cherry-blossom.webp" alt="" loading="lazy" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <strong>벚꽃 에펠</strong>
+            </button>
+            <button
+              class="background-option"
+              type="button"
+              data-background="/backgrounds/paris-opera-evening.webp"
+              data-tone="rose"
+              aria-label="오페라 저녁 배경"
+              aria-pressed="false"
+            >
+              <span class="background-thumb">
+                <img src="/backgrounds/thumbs/paris-opera-evening.webp" alt="" loading="lazy" />
+                <i aria-hidden="true">✓</i>
+              </span>
+              <strong>오페라 저녁</strong>
             </button>
           </div>
-        </div>
 
-        <div class="control-section looks-section">
-          <div class="control-heading">
+          <button
+            class="background-upload"
+            id="backgroundUploadButton"
+            type="button"
+            aria-pressed="false"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span><strong>내 배경 추가</strong><small>JPG · PNG, 최대 24MB</small></span>
+          </button>
+        </section>
+
+        <section class="control-panel looks-section" id="looksPanel">
+          <div class="panel-heading compact">
             <div>
-              <span class="control-number">02</span>
-              <h3>인생사진 무드</h3>
+              <span>02</span>
+              <h2>사진 무드</h2>
             </div>
-            <p>인물과 배경의 색감을 한 번에 맞춰요.</p>
           </div>
           <div class="look-controls" id="lookControls">
             <button class="look-option is-selected" type="button" data-look="natural" aria-pressed="true">
               <span class="look-swatch swatch-natural"></span>
-              <span><strong>내추럴</strong><small>깨끗하고 선명하게</small></span>
+              <span><strong>내추럴</strong><small>깨끗하게</small></span>
             </button>
             <button class="look-option" type="button" data-look="paris-film" aria-pressed="false">
               <span class="look-swatch swatch-film"></span>
-              <span><strong>파리 필름</strong><small>부드러운 아날로그 톤</small></span>
+              <span><strong>파리 필름</strong><small>아날로그</small></span>
             </button>
             <button class="look-option" type="button" data-look="lumiere" aria-pressed="false">
               <span class="look-swatch swatch-lumiere"></span>
-              <span><strong>뤼미에르</strong><small>따뜻하고 화사하게</small></span>
+              <span><strong>뤼미에르</strong><small>화사하게</small></span>
             </button>
           </div>
           <div class="realism-tuning" aria-label="인물 합성 미세 조정">
@@ -296,31 +409,62 @@
               <input id="shadowStrength" type="range" min="0" max="100" value="55" />
             </label>
           </div>
-        </div>
-      </section>
+        </section>
+
+        <section class="control-panel shooting-guide-panel" id="shootingGuidePanel">
+          <div class="panel-heading compact">
+            <div>
+              <span>03</span>
+              <h2>1.5m 촬영 안내</h2>
+            </div>
+          </div>
+          <ol class="shooting-guide-list">
+            <li><span>1</span><p><strong>카메라 높이</strong>허리와 가슴 사이에 렌즈를 맞춰요.</p></li>
+            <li><span>2</span><p><strong>촬영 거리</strong>바닥에서 약 1.5m 뒤로 서서 전신을 보여주세요.</p></li>
+            <li><span>3</span><p><strong>구도</strong>화면 안내가 초록색이 되면 정면을 보고 촬영해요.</p></li>
+          </ol>
+          <div class="quick-start">
+            <button class="button button-primary" id="heroCameraButton" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6H8l1.1-1.5h5.8L16 6h1.5A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-8Z" />
+                <circle cx="12" cy="12.5" r="3.3" />
+              </svg>
+              전체화면 촬영
+            </button>
+            <button class="button button-outline" id="heroUploadButton" type="button">
+              사진 불러오기
+            </button>
+          </div>
+          <details class="external-camera-help">
+            <summary>GoPro · 외장 카메라 연결 안내</summary>
+            <p>
+              노트북 카메라와 USB 웹캠은 목록에서 바로 선택할 수 있습니다. GoPro는
+              <strong>USB 웹캠 모드</strong> 또는 <strong>HDMI 캡처카드</strong>로 연결한 뒤
+              ‘다시 찾기’를 눌러 주세요. 블루투스만으로는 브라우저에 영상이 전달되지 않습니다.
+            </p>
+          </details>
+          <p class="drive-privacy-note">
+            <strong>보관 안내</strong>
+            현재 Photo-Mix 폴더는 링크 보유자가 볼 수 있습니다. 개인 촬영본은 폴더 공유 설정을
+            ‘제한됨’으로 바꾸면 더 안전합니다.
+          </p>
+        </section>
+      </aside>
     </main>
-
-    <section class="how-it-works" aria-labelledby="how-title">
-      <p class="section-kicker">THREE LITTLE STEPS</p>
-      <h2 id="how-title">파리까지, 세 번의 탭</h2>
-      <ol>
-        <li><span>01</span><strong>배경 고르기</strong><p>파리 무드나 내 사진을 배경으로 선택해요.</p></li>
-        <li><span>02</span><strong>포즈 & 촬영</strong><p>AI가 인물을 분리해 장면 안에 자연스럽게 놓아요.</p></li>
-        <li><span>03</span><strong>저장 & 공유</strong><p>완성 사진을 저장하거나 원하는 앱으로 바로 공유해요.</p></li>
-      </ol>
-    </section>
-
-    <footer class="site-footer">
-      <span>오늘, 사진</span>
-      <p>브라우저에서 만드는 나만의 여행 사진 · 얼굴 인식이나 서버 저장을 하지 않습니다.</p>
-    </footer>
 
     <input id="portraitUpload" type="file" accept="image/*" hidden />
     <input id="backgroundUpload" type="file" accept="image/*" hidden />
 
     <dialog class="result-dialog" id="resultDialog">
       <div class="dialog-shell">
-        <button class="dialog-close" id="resultCloseButton" type="button" aria-label="결과 창 닫기">×</button>
+        <button
+          class="dialog-close"
+          id="resultCloseButton"
+          type="button"
+          aria-label="결과 창 닫기"
+        >
+          ×
+        </button>
         <section class="result-visual">
           <p class="section-kicker">BONJOUR, YOUR BEST SHOT</p>
           <div class="result-frame">
@@ -330,14 +474,34 @@
         </section>
         <section class="result-actions">
           <p class="result-overline">YOUR PHOTO IS READY</p>
-          <h2>이 순간을<br />간직해 볼까요?</h2>
-          <p class="result-copy">
-            사진은 아직 이 기기 안에만 있어요. 저장하거나 공유할 방법을 선택해 주세요.
-          </p>
+          <h2>오늘의 사진이<br />완성됐어요</h2>
+
+          <div class="drive-save-card" id="driveSaveCard" data-state="idle">
+            <span class="drive-save-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="m8.2 3.5 3.8 6.6-4.1 7.1H4.1L8.2 10 6.3 6.8zM12 10.1h7.8l-1.9-3.3h-3.8L12.2 3.5H8.3M7.9 17.2h8.2l1.9 3.3H9.8L7.9 17.2z" />
+              </svg>
+            </span>
+            <div>
+              <strong id="driveSaveStatus">Google Drive 자동 저장 대기</strong>
+              <small id="driveSaveDetail">촬영 후 Photo-Mix 폴더에 자동으로 보관합니다.</small>
+            </div>
+            <button id="driveRetryButton" type="button" hidden>다시 시도</button>
+            <a
+              href="https://drive.google.com/drive/folders/1T9pwEsFZaNMPB8GldEg6NGPXoggxUdnG?usp=sharing"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              폴더 보기
+            </a>
+          </div>
+
           <div class="primary-result-actions">
             <button class="button button-primary button-wide" id="shareButton" type="button">
               <svg aria-hidden="true" viewBox="0 0 24 24">
-                <circle cx="18" cy="5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="19" r="2.5" />
+                <circle cx="18" cy="5" r="2.5" />
+                <circle cx="6" cy="12" r="2.5" />
+                <circle cx="18" cy="19" r="2.5" />
                 <path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5" />
               </svg>
               카카오톡·메일·문자로 공유
@@ -355,20 +519,32 @@
             <div class="share-field">
               <label for="emailInput">이메일</label>
               <div>
-                <input id="emailInput" type="email" inputmode="email" placeholder="name@example.com" autocomplete="email" />
+                <input
+                  id="emailInput"
+                  type="email"
+                  inputmode="email"
+                  placeholder="name@example.com"
+                  autocomplete="email"
+                />
                 <button id="emailButton" type="button">메일 앱 열기</button>
               </div>
             </div>
             <div class="share-field">
               <label for="phoneInput">휴대폰 번호</label>
               <div>
-                <input id="phoneInput" type="tel" inputmode="tel" placeholder="010-0000-0000" autocomplete="tel" />
+                <input
+                  id="phoneInput"
+                  type="tel"
+                  inputmode="tel"
+                  placeholder="010-0000-0000"
+                  autocomplete="tel"
+                />
                 <button id="smsButton" type="button">문자 앱 열기</button>
               </div>
             </div>
             <small>
-              브라우저 보안상 메일·문자 앱에는 사진이 자동 첨부되지 않을 수 있어요. 이 경우 방금
-              저장된 사진을 직접 첨부해 주세요.
+              브라우저 보안상 메일·문자 앱에 사진이 자동 첨부되지 않으면 저장된 사진을 직접
+              첨부해 주세요.
             </small>
           </div>
 

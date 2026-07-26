@@ -11,12 +11,12 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     metadataBase,
-    title: "오늘, 사진 — 나만의 인생사진 포토부스",
+    title: "오늘, 사진 — 파리 인생사진 스튜디오",
     description:
-      "에펠탑과 자전거가 보이는 파리 배경에서 촬영한 듯한 나만의 4:5 인생사진을 만들어 보세요.",
+      "10개의 파리 배경을 고르고 약 1.5m 전신 촬영 가이드에 맞춰 나만의 4:5 인생사진을 만들어 보세요.",
     openGraph: {
       title: "오늘, 사진",
-      description: "카메라를 켜면, 오늘의 배경은 파리.",
+      description: "파리에서, 가장 나다운 한 장.",
       locale: "ko_KR",
       type: "website",
       images: [
@@ -31,7 +31,7 @@ export async function generateMetadata(): Promise<Metadata> {
     twitter: {
       card: "summary_large_image",
       title: "오늘, 사진",
-      description: "카메라를 켜면, 오늘의 배경은 파리.",
+      description: "파리에서, 가장 나다운 한 장.",
       images: ["/og.png"],
     },
   };

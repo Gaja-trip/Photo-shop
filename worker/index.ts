@@ -1,8 +1,12 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import {
+  handlePhotoApi,
+  type DriveUploadEnv,
+} from "./drive-upload";
 
-interface Env {
+interface Env extends DriveUploadEnv {
   ASSETS: Fetcher;
   DB: D1Database;
   IMAGES: {
@@ -28,6 +32,10 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/photos") {
+      return handlePhotoApi(request, env);
+    }
 
     const legacyAssetRoutes: Record<string, string> = {
       "/booth": "/index.html",
