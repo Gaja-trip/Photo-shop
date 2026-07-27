@@ -470,7 +470,11 @@
     <input id="portraitUpload" type="file" accept="image/*" hidden />
     <input id="backgroundUpload" type="file" accept="image/*" hidden />
 
-    <dialog class="result-dialog" id="resultDialog">
+    <dialog
+      class="result-dialog"
+      id="resultDialog"
+      aria-labelledby="resultDialogTitle"
+    >
       <div class="dialog-shell">
         <button
           class="dialog-close"
@@ -489,7 +493,235 @@
         </section>
         <section class="result-actions">
           <p class="result-overline">YOUR PHOTO IS READY</p>
-          <h2>오늘의 사진이<br />완성됐어요</h2>
+          <h2 id="resultDialogTitle">오늘의 사진을<br />완성해 보세요</h2>
+
+          <section class="result-style-editor" id="resultStyleEditor" aria-labelledby="resultStyleEditorTitle">
+            <div class="result-style-heading">
+              <div>
+                <span>촬영 후 꾸미기</span>
+                <h3 id="resultStyleEditorTitle">나에게 어울리는 한 장으로</h3>
+              </div>
+              <p>먼저 선명하게 촬영한 얼굴은 그대로 두고 배경과 스타일만 자연스럽게 바꿔보세요.</p>
+            </div>
+
+            <fieldset class="result-style-group result-background-group">
+              <legend>배경</legend>
+              <div class="result-background-options" role="group" aria-label="결과 사진 배경 선택">
+                <button
+                  class="result-background-option is-selected"
+                  type="button"
+                  data-result-background="/backgrounds/paris-eiffel-closeup.webp"
+                  aria-label="에펠 클로즈업 배경"
+                  aria-pressed="true"
+                >
+                  <img src="/backgrounds/thumbs/paris-eiffel-closeup.webp" alt="" />
+                  <span>에펠</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/backgrounds/paris-seine-morning.webp"
+                  aria-label="센강 아침 배경"
+                  aria-pressed="false"
+                >
+                  <img src="/backgrounds/thumbs/paris-seine-morning.webp" alt="" />
+                  <span>센강</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/backgrounds/paris-montmartre.webp"
+                  aria-label="몽마르트 배경"
+                  aria-pressed="false"
+                >
+                  <img src="/backgrounds/thumbs/paris-montmartre.webp" alt="" />
+                  <span>몽마르트</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/backgrounds/paris-louvre-blue-hour.webp"
+                  aria-label="루브르 블루아워 배경"
+                  aria-pressed="false"
+                >
+                  <img src="/backgrounds/thumbs/paris-louvre-blue-hour.webp" alt="" />
+                  <span>루브르</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/backgrounds/paris-arc-sunrise.webp"
+                  aria-label="개선문 일출 배경"
+                  aria-pressed="false"
+                >
+                  <img src="/backgrounds/thumbs/paris-arc-sunrise.webp" alt="" />
+                  <span>개선문</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/backgrounds/paris-golden-hour.webp"
+                  aria-label="에펠 골든아워 배경"
+                  aria-pressed="false"
+                >
+                  <img src="/backgrounds/thumbs/paris-golden-hour.webp" alt="" />
+                  <span>골든아워</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/backgrounds/paris-rainy-cafe.webp"
+                  aria-label="비 오는 카페 거리 배경"
+                  aria-pressed="false"
+                >
+                  <img src="/backgrounds/thumbs/paris-rainy-cafe.webp" alt="" />
+                  <span>비 오는 카페</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/backgrounds/paris-eiffel-night.webp"
+                  aria-label="에펠 야경 배경"
+                  aria-pressed="false"
+                >
+                  <img src="/backgrounds/thumbs/paris-eiffel-night.webp" alt="" />
+                  <span>야경</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/backgrounds/paris-cherry-blossom.webp"
+                  aria-label="벚꽃 에펠 배경"
+                  aria-pressed="false"
+                >
+                  <img src="/backgrounds/thumbs/paris-cherry-blossom.webp" alt="" />
+                  <span>벚꽃 에펠</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/backgrounds/paris-opera-evening.webp"
+                  aria-label="오페라 저녁 배경"
+                  aria-pressed="false"
+                >
+                  <img src="/backgrounds/thumbs/paris-opera-evening.webp" alt="" />
+                  <span>오페라</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-custom-background="true"
+                  aria-label="직접 올린 배경"
+                  aria-pressed="false"
+                  hidden
+                >
+                  <img alt="" />
+                  <span>내 배경</span>
+                </button>
+              </div>
+            </fieldset>
+
+            <div class="result-style-columns">
+              <fieldset class="result-style-group">
+                <legend>헤어 무드</legend>
+                <div class="result-choice-options" role="group" aria-label="헤어스타일 선택">
+                  <button
+                    class="result-choice-option is-selected"
+                    type="button"
+                    data-hair-style="original"
+                    aria-pressed="true"
+                  >
+                    원본
+                  </button>
+                  <button
+                    class="result-choice-option"
+                    type="button"
+                    data-hair-style="soft-wave"
+                    aria-pressed="false"
+                  >
+                    소프트 웨이브
+                  </button>
+                  <button
+                    class="result-choice-option"
+                    type="button"
+                    data-hair-style="high-bun"
+                    aria-pressed="false"
+                  >
+                    하이 번
+                  </button>
+                  <button
+                    class="result-choice-option"
+                    type="button"
+                    data-hair-style="short-bob"
+                    aria-pressed="false"
+                  >
+                    쇼트 보브
+                  </button>
+                </div>
+              </fieldset>
+
+              <fieldset class="result-style-group">
+                <legend>사진 스타일</legend>
+                <div class="result-choice-options" role="group" aria-label="사진 스타일 선택">
+                  <button
+                    class="result-choice-option is-selected"
+                    type="button"
+                    data-result-look="crisp"
+                    aria-pressed="true"
+                  >
+                    선명
+                  </button>
+                  <button
+                    class="result-choice-option"
+                    type="button"
+                    data-result-look="natural"
+                    aria-pressed="false"
+                  >
+                    내추럴
+                  </button>
+                  <button
+                    class="result-choice-option"
+                    type="button"
+                    data-result-look="film"
+                    aria-pressed="false"
+                  >
+                    필름
+                  </button>
+                  <button
+                    class="result-choice-option"
+                    type="button"
+                    data-result-look="monochrome"
+                    aria-pressed="false"
+                  >
+                    흑백
+                  </button>
+                </div>
+              </fieldset>
+            </div>
+
+            <div class="result-style-footer">
+              <div
+                class="result-style-status"
+                id="styleEditStatus"
+                data-state="idle"
+                role="status"
+                aria-live="polite"
+              >
+                <span aria-hidden="true"></span>
+                <div>
+                  <strong>스타일을 선택해 주세요</strong>
+                  <small>선택한 효과를 미리보기에 정교하게 반영합니다.</small>
+                </div>
+              </div>
+              <button
+                class="button button-primary result-finalize-button"
+                id="finalizeStyleButton"
+                type="button"
+              >
+                이 스타일로 완성
+              </button>
+            </div>
+          </section>
 
           <div class="drive-save-card" id="driveSaveCard" data-state="idle">
             <span class="drive-save-icon" aria-hidden="true">
@@ -499,7 +731,7 @@
             </span>
             <div>
               <strong id="driveSaveStatus">Google Drive 자동 저장 대기</strong>
-              <small id="driveSaveDetail">촬영 후 Photo-Mix 폴더에 자동으로 보관합니다.</small>
+              <small id="driveSaveDetail">스타일을 확정하면 최종 사진만 Photo-Mix 폴더에 보관합니다.</small>
             </div>
             <button id="driveRetryButton" type="button" hidden>다시 시도</button>
             <a

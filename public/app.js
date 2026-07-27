@@ -32,6 +32,9 @@ const driveSaveCard = byId("driveSaveCard");
 const driveSaveStatus = byId("driveSaveStatus");
 const driveSaveDetail = byId("driveSaveDetail");
 const driveRetryButton = byId("driveRetryButton");
+const resultStyleEditor = byId("resultStyleEditor");
+const styleEditStatus = byId("styleEditStatus");
+const finalizeStyleButton = byId("finalizeStyleButton");
 
 const DEFAULT_BACKGROUND_PATH = "/backgrounds/paris-eiffel-closeup.webp";
 const DRIVE_UPLOAD_ENDPOINT = "/api/photos";
@@ -44,12 +47,12 @@ const SELFIE_MODEL =
   "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
 const PREVIEW_WIDTH = 720;
 const PREVIEW_HEIGHT = 900;
-const EXPORT_WIDTH = 1080;
-const EXPORT_HEIGHT = 1350;
+const EXPORT_WIDTH = 1440;
+const EXPORT_HEIGHT = 1800;
 const SEGMENTATION_INTERVAL = 92;
 const MAX_INFERENCE_EDGE = 640;
 const MAX_STILL_INFERENCE_EDGE = 1600;
-const MAX_CAPTURE_EDGE = 2560;
+const MAX_CAPTURE_EDGE = 4096;
 const REFERENCE_PERSON_HEIGHT = 0.44;
 const REFERENCE_GROUND_Y = 0.975;
 const REFERENCE_PERSON_CENTER_X = 0.52;
@@ -60,10 +63,13 @@ defaultBackground.src = DEFAULT_BACKGROUND_PATH;
 
 const state = {
   backgroundImage: defaultBackground,
+  backgroundPath: DEFAULT_BACKGROUND_PATH,
   customBackground: null,
   customBackgroundUrl: "",
   backgroundTone: "golden",
   look: "natural",
+  lookBeforeCapture: null,
+  hairStyle: "original",
   personScale: 0.9,
   personOffsetY: 0,
   shadowStrength: 0.55,
@@ -100,6 +106,16 @@ const state = {
   staticMaskAttempts: 0,
   resultBlob: null,
   resultUrl: "",
+  resultFinalized: false,
+  resultRevision: 0,
+  resultRenderRevision: 0,
+  resultRenderTimer: 0,
+  resultRenderPromise: null,
+  resultBackgroundRequest: 0,
+  resultBackgroundPromise: null,
+  captureRecipe: null,
+  captureMethod: "video-frame",
+  captureMaskQuality: "soft",
   renderHandle: 0,
   lastRenderedAt: 0,
   captureInProgress: false,
@@ -123,6 +139,16 @@ const personLayer = document.createElement("canvas");
 const softMaskLayer = document.createElement("canvas");
 const exportCanvas = document.createElement("canvas");
 const captureFrameCanvas = document.createElement("canvas");
+const fallbackFrameCanvas = document.createElement("canvas");
+const sharpnessSampleCanvas = document.createElement("canvas");
+const captureMaskCanvas = document.createElement("canvas");
+const previewMaskBackupCanvas = document.createElement("canvas");
+const hairSampleCanvas = document.createElement("canvas");
+const hairBackLayer = document.createElement("canvas");
+const hairFrontLayer = document.createElement("canvas");
+const faceDetailCanvas = document.createElement("canvas");
+const faceBlurCanvas = document.createElement("canvas");
+const monochromeLayer = document.createElement("canvas");
 const environmentSampleCanvas = document.createElement("canvas");
 const backgroundImageCache = new Map([[DEFAULT_BACKGROUND_PATH, defaultBackground]]);
 const backgroundEnvironmentCache = new WeakMap();
@@ -172,6 +198,8 @@ function snapshotSource(source, targetCanvas, maxEdge) {
   targetCanvas.width = width;
   targetCanvas.height = height;
   const context = targetCanvas.getContext("2d", { alpha: false });
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
   context.drawImage(source, 0, 0, width, height);
   return targetCanvas;
 }
@@ -237,7 +265,10 @@ function getBackgroundFilter() {
     rose: "brightness(1.06) saturate(1.03) sepia(.13) hue-rotate(338deg)",
     custom: "brightness(1.01) saturate(.96) contrast(.98)",
   };
-  return filters[state.backgroundTone] || filters.golden;
+  const filter = filters[state.backgroundTone] || filters.golden;
+  return state.look === "monochrome"
+    ? `${filter} grayscale(1) contrast(1.04)`
+    : filter;
 }
 
 function clamp(value, minimum, maximum) {
@@ -251,23 +282,40 @@ function smoothStep(minimum, maximum, value) {
 
 function getPortraitFilter(environment) {
   const presets = {
+    crisp: {
+      brightness: 1.018,
+      saturation: 0.97,
+      contrast: 1.045,
+      sepia: 0,
+      grayscale: 0,
+    },
     natural: {
       brightness: 1.015,
       saturation: 0.94,
       contrast: 0.98,
       sepia: 0,
+      grayscale: 0,
     },
     "paris-film": {
       brightness: 0.995,
       saturation: 0.82,
       contrast: 0.95,
       sepia: 0.08,
+      grayscale: 0,
     },
     lumiere: {
       brightness: 1.055,
       saturation: 1,
       contrast: 0.95,
       sepia: 0.05,
+      grayscale: 0,
+    },
+    monochrome: {
+      brightness: 1.02,
+      saturation: 0,
+      contrast: 1.07,
+      sepia: 0,
+      grayscale: 1,
     },
   };
   const preset = presets[state.look] || presets.natural;
@@ -283,6 +331,7 @@ function getPortraitFilter(environment) {
     `brightness(${brightness})`,
     `saturate(${saturation})`,
     `sepia(${preset.sepia})`,
+    `grayscale(${preset.grayscale})`,
     `contrast(${preset.contrast})`,
   ].join(" ");
 }
@@ -385,27 +434,34 @@ function ensureLayerSize(layer, width, height) {
   }
 }
 
-function getLayerPersonBounds(sourceCrop, sourceSize, width, height) {
-  if (!state.personBounds) return null;
+function getLayerPersonBounds(
+  sourceCrop,
+  sourceSize,
+  width,
+  height,
+  personBounds = state.personBounds,
+  mirror = state.mirror,
+) {
+  if (!personBounds) return null;
 
   let left =
-    ((state.personBounds.left * sourceSize.width - sourceCrop.x) /
+    ((personBounds.left * sourceSize.width - sourceCrop.x) /
       sourceCrop.width) *
     width;
   let right =
-    ((state.personBounds.right * sourceSize.width - sourceCrop.x) /
+    ((personBounds.right * sourceSize.width - sourceCrop.x) /
       sourceCrop.width) *
     width;
   const top =
-    ((state.personBounds.top * sourceSize.height - sourceCrop.y) /
+    ((personBounds.top * sourceSize.height - sourceCrop.y) /
       sourceCrop.height) *
     height;
   const bottom =
-    ((state.personBounds.bottom * sourceSize.height - sourceCrop.y) /
+    ((personBounds.bottom * sourceSize.height - sourceCrop.y) /
       sourceCrop.height) *
     height;
 
-  if (state.mirror) {
+  if (mirror) {
     const mirroredLeft = width - right;
     right = width - left;
     left = mirroredLeft;
@@ -672,21 +728,30 @@ function drawSoftPortraitMask(context, width, height) {
   context.restore();
 }
 
-function applyPortraitMask(context, sourceCrop, sourceSize, width, height, useAiMask) {
+function applyPortraitMask(
+  context,
+  sourceCrop,
+  sourceSize,
+  width,
+  height,
+  useAiMask,
+  maskCanvas = state.maskCanvas,
+  mirror = state.mirror,
+) {
   context.globalCompositeOperation = "destination-in";
 
   if (useAiMask) {
     const maskCrop = {
-      x: (sourceCrop.x / sourceSize.width) * state.maskCanvas.width,
-      y: (sourceCrop.y / sourceSize.height) * state.maskCanvas.height,
-      width: (sourceCrop.width / sourceSize.width) * state.maskCanvas.width,
-      height: (sourceCrop.height / sourceSize.height) * state.maskCanvas.height,
+      x: (sourceCrop.x / sourceSize.width) * maskCanvas.width,
+      y: (sourceCrop.y / sourceSize.height) * maskCanvas.height,
+      width: (sourceCrop.width / sourceSize.width) * maskCanvas.width,
+      height: (sourceCrop.height / sourceSize.height) * maskCanvas.height,
     };
     context.save();
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
-    drawCropped(context, state.maskCanvas, maskCrop, width, height, {
-      mirror: state.mirror,
+    drawCropped(context, maskCanvas, maskCrop, width, height, {
+      mirror,
       filter: `blur(${clamp(width * 0.00072, 0.42, 1.05)}px)`,
     });
     context.restore();
@@ -699,7 +764,7 @@ function applyPortraitMask(context, sourceCrop, sourceSize, width, height, useAi
 }
 
 function drawColorHarmony(context, width, height, hasPortrait) {
-  if (hasPortrait) {
+  if (hasPortrait && state.look !== "monochrome") {
     context.save();
     context.globalCompositeOperation = "soft-light";
     context.globalAlpha = state.look === "lumiere" ? 0.15 : 0.09;
@@ -731,6 +796,11 @@ function drawColorHarmony(context, width, height, hasPortrait) {
     glow.addColorStop(0, "rgba(255, 229, 175, .16)");
     glow.addColorStop(1, "rgba(255, 255, 255, 0)");
     context.fillStyle = glow;
+    context.fillRect(0, 0, width, height);
+  } else if (state.look === "monochrome") {
+    context.globalCompositeOperation = "soft-light";
+    context.globalAlpha = 0.08;
+    context.fillStyle = "#e6e6e2";
     context.fillRect(0, 0, width, height);
   }
   context.restore();
@@ -765,7 +835,455 @@ function drawFilmGrain(context, width, height) {
   context.restore();
 }
 
-function renderComposite(context, width, height, sourceOverride = null) {
+function applyMonochromeFinish(context, width, height) {
+  if (state.look !== "monochrome") return;
+  ensureLayerSize(monochromeLayer, width, height);
+  const finishContext = monochromeLayer.getContext("2d");
+  finishContext.clearRect(0, 0, width, height);
+  finishContext.save();
+  finishContext.filter = "grayscale(1) contrast(1.04)";
+  finishContext.drawImage(context.canvas, 0, 0, width, height);
+  finishContext.restore();
+  context.save();
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.globalCompositeOperation = "source-over";
+  context.globalAlpha = 1;
+  context.filter = "none";
+  context.clearRect(0, 0, width, height);
+  context.drawImage(monochromeLayer, 0, 0);
+  context.restore();
+}
+
+function getPlacedSubjectBounds(layerBounds, placement) {
+  if (!layerBounds) return null;
+  const left = placement.x + layerBounds.left * placement.scale;
+  const right = placement.x + layerBounds.right * placement.scale;
+  const top = placement.y + layerBounds.top * placement.scale;
+  const bottom = placement.y + layerBounds.bottom * placement.scale;
+  return {
+    left,
+    right,
+    top,
+    bottom,
+    centerX: (left + right) / 2,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+}
+
+function mixRgb(first, second, amount) {
+  const inverse = 1 - amount;
+  return {
+    red: Math.round(first.red * inverse + second.red * amount),
+    green: Math.round(first.green * inverse + second.green * amount),
+    blue: Math.round(first.blue * inverse + second.blue * amount),
+  };
+}
+
+function rgbString(color, alpha = 1) {
+  return `rgba(${color.red}, ${color.green}, ${color.blue}, ${alpha})`;
+}
+
+function sampleHairColor(layer, personBounds, recipe) {
+  if (recipe?.hairColor) return recipe.hairColor;
+  const fallback = { red: 48, green: 37, blue: 33 };
+  if (!personBounds || personBounds.width < 12 || personBounds.height < 30) {
+    return fallback;
+  }
+
+  const sampleWidth = clamp(personBounds.width * 0.62, 18, layer.width);
+  const sampleHeight = clamp(personBounds.height * 0.17, 14, layer.height);
+  const sampleX = clamp(
+    personBounds.centerX - sampleWidth / 2,
+    0,
+    Math.max(0, layer.width - sampleWidth),
+  );
+  const sampleY = clamp(
+    personBounds.top,
+    0,
+    Math.max(0, layer.height - sampleHeight),
+  );
+
+  try {
+    hairSampleCanvas.width = 24;
+    hairSampleCanvas.height = 18;
+    const sampleContext = hairSampleCanvas.getContext("2d", {
+      willReadFrequently: true,
+    });
+    sampleContext.clearRect(0, 0, 24, 18);
+    sampleContext.drawImage(
+      layer,
+      sampleX,
+      sampleY,
+      sampleWidth,
+      sampleHeight,
+      0,
+      0,
+      24,
+      18,
+    );
+    const pixels = sampleContext.getImageData(0, 0, 24, 18).data;
+    const candidates = [];
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index + 3] < 190) continue;
+      const red = pixels[index];
+      const green = pixels[index + 1];
+      const blue = pixels[index + 2];
+      const luminance = red * 0.299 + green * 0.587 + blue * 0.114;
+      if (luminance > 178) continue;
+      candidates.push({ red, green, blue, luminance });
+    }
+    if (candidates.length < 14) return fallback;
+    candidates.sort((first, second) => first.luminance - second.luminance);
+    const trimmed = candidates.slice(
+      Math.floor(candidates.length * 0.12),
+      Math.max(1, Math.ceil(candidates.length * 0.68)),
+    );
+    const channelMedian = (channel) => {
+      const values = trimmed.map((pixel) => pixel[channel]).sort((a, b) => a - b);
+      return values[Math.floor(values.length / 2)];
+    };
+    const sampled = {
+      red: channelMedian("red"),
+      green: channelMedian("green"),
+      blue: channelMedian("blue"),
+    };
+    if (recipe) recipe.hairColor = sampled;
+    return sampled;
+  } catch {
+    return fallback;
+  }
+}
+
+function getHairGeometry(subjectBounds) {
+  if (!subjectBounds || subjectBounds.height < 70 || subjectBounds.width < 24) {
+    return null;
+  }
+  const headHeight = subjectBounds.height * 0.145;
+  const headWidth = clamp(
+    subjectBounds.height * 0.095,
+    subjectBounds.width * 0.16,
+    subjectBounds.width * 0.42,
+  );
+  if (headWidth < 24 || headHeight < 34) return null;
+  return {
+    centerX: subjectBounds.centerX,
+    top: subjectBounds.top,
+    width: headWidth,
+    height: headHeight,
+    faceCenterY: subjectBounds.top + subjectBounds.height * 0.085,
+    faceRadiusX: headWidth * 0.38,
+    faceRadiusY: headHeight * 0.43,
+  };
+}
+
+function drawHairBack(context, width, height, geometry, palette, style) {
+  ensureLayerSize(hairBackLayer, width, height);
+  const hairContext = hairBackLayer.getContext("2d");
+  hairContext.clearRect(0, 0, width, height);
+  hairContext.save();
+  hairContext.globalAlpha = 0.9;
+  const { centerX: x, top: y, width: w, height: h } = geometry;
+  const gradient = hairContext.createLinearGradient(
+    x - w * 0.7,
+    y,
+    x + w * 0.7,
+    y + h * 1.8,
+  );
+  gradient.addColorStop(0, rgbString(palette.highlight));
+  gradient.addColorStop(0.34, rgbString(palette.base));
+  gradient.addColorStop(1, rgbString(palette.shadow));
+  hairContext.fillStyle = gradient;
+  hairContext.strokeStyle = rgbString(palette.shadow, 0.62);
+  hairContext.lineWidth = Math.max(1.2, w * 0.025);
+  hairContext.lineJoin = "round";
+
+  if (style === "soft-wave") {
+    hairContext.beginPath();
+    hairContext.moveTo(x - w * 0.48, y + h * 0.36);
+    hairContext.bezierCurveTo(
+      x - w * 0.82,
+      y + h * 0.72,
+      x - w * 0.5,
+      y + h * 1.2,
+      x - w * 0.72,
+      y + h * 1.62,
+    );
+    hairContext.bezierCurveTo(
+      x - w * 0.91,
+      y + h * 1.96,
+      x - w * 0.45,
+      y + h * 2.12,
+      x - w * 0.27,
+      y + h * 1.67,
+    );
+    hairContext.lineTo(x - w * 0.08, y + h * 0.65);
+    hairContext.closePath();
+    hairContext.fill();
+    hairContext.stroke();
+
+    hairContext.beginPath();
+    hairContext.moveTo(x + w * 0.48, y + h * 0.36);
+    hairContext.bezierCurveTo(
+      x + w * 0.82,
+      y + h * 0.72,
+      x + w * 0.5,
+      y + h * 1.2,
+      x + w * 0.72,
+      y + h * 1.62,
+    );
+    hairContext.bezierCurveTo(
+      x + w * 0.91,
+      y + h * 1.96,
+      x + w * 0.45,
+      y + h * 2.12,
+      x + w * 0.27,
+      y + h * 1.67,
+    );
+    hairContext.lineTo(x + w * 0.08, y + h * 0.65);
+    hairContext.closePath();
+    hairContext.fill();
+    hairContext.stroke();
+  } else if (style === "high-bun") {
+    hairContext.beginPath();
+    hairContext.ellipse(
+      x,
+      y - h * 0.15,
+      w * 0.39,
+      h * 0.31,
+      -0.08,
+      0,
+      Math.PI * 2,
+    );
+    hairContext.fill();
+    hairContext.stroke();
+  } else if (style === "short-bob") {
+    hairContext.beginPath();
+    hairContext.moveTo(x, y - h * 0.02);
+    hairContext.bezierCurveTo(
+      x - w * 0.86,
+      y + h * 0.03,
+      x - w * 0.79,
+      y + h * 1.35,
+      x - w * 0.5,
+      y + h * 1.62,
+    );
+    hairContext.bezierCurveTo(
+      x - w * 0.14,
+      y + h * 1.83,
+      x + w * 0.14,
+      y + h * 1.83,
+      x + w * 0.5,
+      y + h * 1.62,
+    );
+    hairContext.bezierCurveTo(
+      x + w * 0.79,
+      y + h * 1.35,
+      x + w * 0.86,
+      y + h * 0.03,
+      x,
+      y - h * 0.02,
+    );
+    hairContext.closePath();
+    hairContext.fill();
+    hairContext.stroke();
+  }
+
+  hairContext.restore();
+  context.save();
+  context.filter = `blur(${clamp(w * 0.006, 0.35, 1.1)}px)`;
+  context.drawImage(hairBackLayer, 0, 0);
+  context.restore();
+}
+
+function drawHairFront(context, width, height, geometry, palette, style) {
+  ensureLayerSize(hairFrontLayer, width, height);
+  const hairContext = hairFrontLayer.getContext("2d");
+  hairContext.clearRect(0, 0, width, height);
+  hairContext.save();
+  const { centerX: x, top: y, width: w, height: h } = geometry;
+  hairContext.strokeStyle = rgbString(palette.base, 0.88);
+  hairContext.lineCap = "round";
+  hairContext.lineJoin = "round";
+
+  const drawTemple = (side, length = 1.28) => {
+    hairContext.lineWidth = Math.max(3, w * 0.13);
+    hairContext.beginPath();
+    hairContext.moveTo(x + side * w * 0.34, y + h * 0.32);
+    hairContext.bezierCurveTo(
+      x + side * w * 0.56,
+      y + h * 0.65,
+      x + side * w * 0.46,
+      y + h * 0.94,
+      x + side * w * 0.54,
+      y + h * length,
+    );
+    hairContext.stroke();
+  };
+
+  if (style === "soft-wave") {
+    drawTemple(-1, 1.55);
+    drawTemple(1, 1.55);
+  } else if (style === "high-bun") {
+    drawTemple(-1, 1.03);
+    drawTemple(1, 1.03);
+    hairContext.lineWidth = Math.max(2, w * 0.08);
+    hairContext.beginPath();
+    hairContext.arc(x, y + h * 0.48, w * 0.44, Math.PI * 1.12, Math.PI * 1.88);
+    hairContext.stroke();
+  } else if (style === "short-bob") {
+    drawTemple(-1, 1.44);
+    drawTemple(1, 1.44);
+  }
+
+  hairContext.globalCompositeOperation = "destination-out";
+  hairContext.beginPath();
+  hairContext.ellipse(
+    x,
+    geometry.faceCenterY,
+    geometry.faceRadiusX * 1.12,
+    geometry.faceRadiusY * 1.12,
+    0,
+    0,
+    Math.PI * 2,
+  );
+  hairContext.fill();
+  hairContext.restore();
+
+  context.save();
+  context.filter = `blur(${clamp(w * 0.004, 0.25, 0.75)}px)`;
+  context.drawImage(hairFrontLayer, 0, 0);
+  context.restore();
+}
+
+function drawHairMood(
+  context,
+  width,
+  height,
+  personBounds,
+  placement,
+  sampledHair,
+  environment,
+  layer,
+) {
+  const style = state.hairStyle;
+  if (style === "original") return;
+  const subjectBounds = getPlacedSubjectBounds(personBounds, placement);
+  const geometry = getHairGeometry(subjectBounds);
+  if (!geometry) return;
+
+  const environmentColor = {
+    red: environment.red,
+    green: environment.green,
+    blue: environment.blue,
+  };
+  const base = mixRgb(sampledHair, environmentColor, 0.08);
+  const palette = {
+    base,
+    shadow: mixRgb(base, { red: 23, green: 19, blue: 17 }, 0.34),
+    highlight: mixRgb(base, { red: 255, green: 233, blue: 207 }, 0.16),
+  };
+
+  if (layer === "back") {
+    drawHairBack(context, width, height, geometry, palette, style);
+  } else {
+    drawHairFront(context, width, height, geometry, palette, style);
+  }
+}
+
+function sharpenCapturedFace(context, subjectBounds) {
+  if (!subjectBounds || subjectBounds.height < 180 || context.canvas.width < 900) {
+    return;
+  }
+  const geometry = getHairGeometry(subjectBounds);
+  if (!geometry) return;
+  const regionWidth = Math.round(clamp(geometry.width * 1.02, 42, 360));
+  const regionHeight = Math.round(clamp(geometry.height * 1.05, 52, 420));
+  const sourceX = Math.round(
+    clamp(
+      geometry.centerX - regionWidth / 2,
+      0,
+      Math.max(0, context.canvas.width - regionWidth),
+    ),
+  );
+  const sourceY = Math.round(
+    clamp(
+      geometry.top + geometry.height * 0.12,
+      0,
+      Math.max(0, context.canvas.height - regionHeight),
+    ),
+  );
+  const width = Math.min(regionWidth, context.canvas.width - sourceX);
+  const height = Math.min(regionHeight, context.canvas.height - sourceY);
+  if (width < 32 || height < 40) return;
+
+  try {
+    ensureLayerSize(faceDetailCanvas, width, height);
+    ensureLayerSize(faceBlurCanvas, width, height);
+    const detailContext = faceDetailCanvas.getContext("2d", {
+      willReadFrequently: true,
+    });
+    const blurContext = faceBlurCanvas.getContext("2d", {
+      willReadFrequently: true,
+    });
+    detailContext.clearRect(0, 0, width, height);
+    blurContext.clearRect(0, 0, width, height);
+    detailContext.drawImage(
+      context.canvas,
+      sourceX,
+      sourceY,
+      width,
+      height,
+      0,
+      0,
+      width,
+      height,
+    );
+    blurContext.save();
+    blurContext.filter = `blur(${context.canvas.width >= 1400 ? 1.25 : 0.85}px)`;
+    blurContext.drawImage(faceDetailCanvas, 0, 0);
+    blurContext.restore();
+
+    const original = detailContext.getImageData(0, 0, width, height);
+    const blurred = blurContext.getImageData(0, 0, width, height);
+    const amount = state.look === "crisp" ? 0.48 : 0.3;
+    for (let index = 0; index < original.data.length; index += 4) {
+      for (let channel = 0; channel < 3; channel += 1) {
+        const sharpened =
+          original.data[index + channel] +
+          (original.data[index + channel] - blurred.data[index + channel]) *
+            amount;
+        original.data[index + channel] = clamp(Math.round(sharpened), 0, 255);
+      }
+    }
+    detailContext.putImageData(original, 0, 0);
+    context.save();
+    context.beginPath();
+    context.ellipse(
+      geometry.centerX,
+      sourceY + height * 0.52,
+      width * 0.43,
+      height * 0.47,
+      0,
+      0,
+      Math.PI * 2,
+    );
+    context.clip();
+    context.globalAlpha = 0.86;
+    context.drawImage(faceDetailCanvas, sourceX, sourceY);
+    context.restore();
+  } catch (error) {
+    console.info("얼굴 디테일 보정은 원본 선명도로 유지합니다.", error);
+  }
+}
+
+function renderComposite(
+  context,
+  width,
+  height,
+  sourceOverride = null,
+  captureRecipe = null,
+) {
   context.save();
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.globalCompositeOperation = "source-over";
@@ -782,6 +1300,10 @@ function renderComposite(context, width, height, sourceOverride = null) {
     return;
   }
 
+  const activeMask = captureRecipe?.maskCanvas || state.maskCanvas;
+  const activePersonBounds =
+    captureRecipe?.personBounds || state.personBounds;
+  const activeMirror = captureRecipe?.mirror ?? state.mirror;
   const sourceSize = getSourceSize(source);
   const sourceCrop = getCoverCrop(sourceSize.width, sourceSize.height, width, height);
   const layerPersonBounds = getLayerPersonBounds(
@@ -789,15 +1311,17 @@ function renderComposite(context, width, height, sourceOverride = null) {
     sourceSize,
     width,
     height,
+    activePersonBounds,
+    activeMirror,
   );
   const placement = getPersonPlacement(width, height, layerPersonBounds);
   const useAiMask =
-    state.maskAvailable &&
-    state.maskCanvas.width > 0 &&
-    state.maskCanvas.height > 0 &&
-    (state.sourceType === "image" || performance.now() - state.maskUpdatedAt < 1600);
-
-  drawGroundingShadow(context, width, height, placement, environment);
+    (captureRecipe ? captureRecipe.maskAvailable : state.maskAvailable) &&
+    activeMask.width > 0 &&
+    activeMask.height > 0 &&
+    (Boolean(captureRecipe) ||
+      state.sourceType === "image" ||
+      performance.now() - state.maskUpdatedAt < 1600);
 
   ensureLayerSize(personLayer, width, height);
   const personContext = personLayer.getContext("2d");
@@ -809,10 +1333,28 @@ function renderComposite(context, width, height, sourceOverride = null) {
   personContext.imageSmoothingQuality = "high";
 
   drawCropped(personContext, source, sourceCrop, width, height, {
-    mirror: state.mirror,
+    mirror: activeMirror,
     filter: getPortraitFilter(environment),
   });
-  applyPortraitMask(personContext, sourceCrop, sourceSize, width, height, useAiMask);
+  applyPortraitMask(
+    personContext,
+    sourceCrop,
+    sourceSize,
+    width,
+    height,
+    useAiMask,
+    activeMask,
+    activeMirror,
+  );
+
+  const sampledHair =
+    state.hairStyle === "original"
+      ? null
+      : sampleHairColor(
+          personLayer,
+          layerPersonBounds,
+          captureRecipe,
+        );
 
   personContext.globalCompositeOperation = "source-atop";
   personContext.globalAlpha = state.look === "lumiere" ? 0.115 : 0.085;
@@ -843,6 +1385,18 @@ function renderComposite(context, width, height, sourceOverride = null) {
   personContext.globalCompositeOperation = "source-over";
   personContext.filter = "none";
 
+  drawGroundingShadow(context, width, height, placement, environment);
+  drawHairMood(
+    context,
+    width,
+    height,
+    layerPersonBounds,
+    placement,
+    sampledHair,
+    environment,
+    "back",
+  );
+
   context.save();
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = "high";
@@ -856,8 +1410,26 @@ function renderComposite(context, width, height, sourceOverride = null) {
   );
   context.restore();
 
+  drawHairMood(
+    context,
+    width,
+    height,
+    layerPersonBounds,
+    placement,
+    sampledHair,
+    environment,
+    "front",
+  );
+  if (captureRecipe) {
+    sharpenCapturedFace(
+      context,
+      getPlacedSubjectBounds(layerPersonBounds, placement),
+    );
+  }
+
   drawColorHarmony(context, width, height, true);
   drawFilmGrain(context, width, height);
+  applyMonochromeFinish(context, width, height);
   context.restore();
 }
 
@@ -2092,6 +2664,7 @@ async function useBackgroundFile(file) {
     await waitForImage(image);
     state.customBackground = image;
     state.backgroundImage = image;
+    state.backgroundPath = "";
     state.backgroundTone = "custom";
 
     const uploadButton = byId("backgroundUploadButton");
@@ -2125,6 +2698,7 @@ async function selectBuiltInBackground(button) {
     }
     await waitForImage(image);
     state.backgroundImage = image;
+    state.backgroundPath = path;
     state.backgroundTone = button.dataset.tone || "golden";
     selectBackgroundButton(button);
   } catch {
@@ -2215,6 +2789,245 @@ async function snapshotNextVideoFrame(video, targetCanvas, maxEdge) {
   return snapshotSource(video, targetCanvas, maxEdge);
 }
 
+function withTimeout(promise, timeout, message) {
+  let timeoutId = 0;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timeoutId = window.setTimeout(() => reject(new Error(message)), timeout);
+    }),
+  ]).finally(() => window.clearTimeout(timeoutId));
+}
+
+async function drawPhotoBlobToCanvas(blob, targetCanvas, maxEdge) {
+  if (typeof window.createImageBitmap === "function") {
+    let bitmap = null;
+    try {
+      try {
+        bitmap = await createImageBitmap(blob, {
+          imageOrientation: "from-image",
+        });
+      } catch {
+        bitmap = await createImageBitmap(blob);
+      }
+      return snapshotSource(bitmap, targetCanvas, maxEdge);
+    } finally {
+      bitmap?.close?.();
+    }
+  }
+
+  const objectUrl = URL.createObjectURL(blob);
+  const image = new Image();
+  image.decoding = "async";
+  image.src = objectUrl;
+  try {
+    await waitForImage(image);
+    await image.decode?.();
+    return snapshotSource(image, targetCanvas, maxEdge);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function getPhotoSettings(capabilities, maxEdge) {
+  const widthCapability = capabilities?.imageWidth;
+  const heightCapability = capabilities?.imageHeight;
+  if (!widthCapability?.max || !heightCapability?.max) return null;
+  const scale = Math.min(
+    1,
+    maxEdge / Math.max(widthCapability.max, heightCapability.max),
+  );
+  const imageWidth = Math.round(
+    clamp(
+      widthCapability.max * scale,
+      widthCapability.min || 1,
+      widthCapability.max,
+    ),
+  );
+  const imageHeight = Math.round(
+    clamp(
+      heightCapability.max * scale,
+      heightCapability.min || 1,
+      heightCapability.max,
+    ),
+  );
+  return { imageWidth, imageHeight };
+}
+
+function scoreFrameSharpness(canvas) {
+  sharpnessSampleCanvas.width = 96;
+  sharpnessSampleCanvas.height = 96;
+  const sampleContext = sharpnessSampleCanvas.getContext("2d", {
+    willReadFrequently: true,
+  });
+  const bounds = state.personBounds;
+  const sourceWidth = canvas.width;
+  const sourceHeight = canvas.height;
+  const crop = bounds
+    ? {
+        x: clamp((bounds.left + (bounds.right - bounds.left) * 0.16) * sourceWidth, 0, sourceWidth - 1),
+        y: clamp(bounds.top * sourceHeight, 0, sourceHeight - 1),
+        width: clamp((bounds.right - bounds.left) * 0.68 * sourceWidth, 1, sourceWidth),
+        height: clamp((bounds.bottom - bounds.top) * 0.24 * sourceHeight, 1, sourceHeight),
+      }
+    : {
+        x: sourceWidth * 0.28,
+        y: sourceHeight * 0.16,
+        width: sourceWidth * 0.44,
+        height: sourceHeight * 0.34,
+      };
+  crop.width = Math.min(crop.width, sourceWidth - crop.x);
+  crop.height = Math.min(crop.height, sourceHeight - crop.y);
+  sampleContext.drawImage(
+    canvas,
+    crop.x,
+    crop.y,
+    crop.width,
+    crop.height,
+    0,
+    0,
+    96,
+    96,
+  );
+  const pixels = sampleContext.getImageData(0, 0, 96, 96).data;
+  const grayscale = new Float32Array(96 * 96);
+  for (let index = 0; index < grayscale.length; index += 1) {
+    const pixelIndex = index * 4;
+    grayscale[index] =
+      pixels[pixelIndex] * 0.299 +
+      pixels[pixelIndex + 1] * 0.587 +
+      pixels[pixelIndex + 2] * 0.114;
+  }
+
+  let score = 0;
+  for (let y = 1; y < 95; y += 1) {
+    for (let x = 1; x < 95; x += 1) {
+      const index = y * 96 + x;
+      const laplacian =
+        grayscale[index - 96] +
+        grayscale[index + 96] +
+        grayscale[index - 1] +
+        grayscale[index + 1] -
+        grayscale[index] * 4;
+      score += laplacian * laplacian;
+    }
+  }
+  return score / (94 * 94);
+}
+
+async function captureBestVideoFrame(video, targetCanvas, maxEdge) {
+  let bestScore = -1;
+  for (let frameIndex = 0; frameIndex < 3; frameIndex += 1) {
+    await snapshotNextVideoFrame(video, fallbackFrameCanvas, maxEdge);
+    const score = scoreFrameSharpness(fallbackFrameCanvas);
+    if (score > bestScore) {
+      bestScore = score;
+      snapshotSource(fallbackFrameCanvas, targetCanvas, maxEdge);
+    }
+    await wait(34);
+  }
+  state.captureMethod = "best-video-frame";
+  if (!targetCanvas.width) {
+    snapshotSource(video, targetCanvas, maxEdge);
+  }
+  fallbackFrameCanvas.width = 0;
+  fallbackFrameCanvas.height = 0;
+  return targetCanvas;
+}
+
+async function captureCanonicalStill(video, targetCanvas, maxEdge) {
+  const track = state.stream?.getVideoTracks()[0];
+  if (track && typeof window.ImageCapture === "function") {
+    try {
+      const imageCapture = new window.ImageCapture(track);
+      let settings = null;
+      try {
+        const capabilities = await withTimeout(
+          imageCapture.getPhotoCapabilities(),
+          900,
+          "사진 해상도 확인 시간이 초과되었습니다.",
+        );
+        settings = getPhotoSettings(capabilities, maxEdge);
+      } catch {
+        // Some UVC and action cameras expose ImageCapture without capabilities.
+      }
+
+      let photoBlob = null;
+      if (settings) {
+        try {
+          photoBlob = await withTimeout(
+            imageCapture.takePhoto(settings),
+            4200,
+            "고해상도 사진 촬영 시간이 초과되었습니다.",
+          );
+        } catch {
+          // Retry once without optional settings for strict camera drivers.
+        }
+      }
+      if (!photoBlob) {
+        photoBlob = await withTimeout(
+          imageCapture.takePhoto(),
+          4200,
+          "고해상도 사진 촬영 시간이 초과되었습니다.",
+        );
+      }
+      await drawPhotoBlobToCanvas(photoBlob, targetCanvas, maxEdge);
+      state.captureMethod = "sensor-photo";
+      return targetCanvas;
+    } catch (error) {
+      console.info("센서 정지사진 대신 선명한 영상 프레임을 사용합니다.", error);
+      try {
+        const imageCapture = new window.ImageCapture(track);
+        const bitmap = await withTimeout(
+          imageCapture.grabFrame(),
+          1800,
+          "카메라 프레임 촬영 시간이 초과되었습니다.",
+        );
+        try {
+          snapshotSource(bitmap, targetCanvas, maxEdge);
+        } finally {
+          bitmap.close?.();
+        }
+        state.captureMethod = "grab-frame";
+        return targetCanvas;
+      } catch {
+        // GoPro webcam mode and several UVC drivers only expose video frames.
+      }
+    }
+  }
+
+  return captureBestVideoFrame(video, targetCanvas, maxEdge);
+}
+
+function cloneCanvasInto(sourceCanvas, targetCanvas) {
+  targetCanvas.width = sourceCanvas.width;
+  targetCanvas.height = sourceCanvas.height;
+  const context = targetCanvas.getContext("2d");
+  context.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+  context.drawImage(sourceCanvas, 0, 0);
+  return targetCanvas;
+}
+
+function createCaptureRecipe() {
+  if (state.maskAvailable && state.maskCanvas.width && state.maskCanvas.height) {
+    cloneCanvasInto(state.maskCanvas, captureMaskCanvas);
+  } else {
+    captureMaskCanvas.width = 0;
+    captureMaskCanvas.height = 0;
+  }
+  return {
+    sourceCanvas: captureFrameCanvas,
+    maskCanvas: captureMaskCanvas,
+    maskAvailable: state.maskAvailable,
+    personBounds: state.personBounds ? { ...state.personBounds } : null,
+    personClipping: state.personClipping ? { ...state.personClipping } : null,
+    mirror: state.mirror,
+    captureMethod: state.captureMethod,
+    maskQuality: state.captureMaskQuality,
+    hairColor: null,
+  };
+}
+
 function throwIfCaptureCancelled(captureId) {
   if (captureId === state.captureSequence) return;
   const error = new Error("촬영이 취소되었습니다.");
@@ -2248,7 +3061,7 @@ function setStudioControlsLocked(locked) {
     });
 }
 
-function segmentExactFrame(source) {
+function segmentExactFrame(source, timeout = 2800) {
   if (!state.segmenter) return Promise.resolve(false);
 
   const generation = state.segmentationGeneration;
@@ -2292,7 +3105,7 @@ function segmentExactFrame(source) {
           state.isSegmenting = false;
           resolve(false);
         }
-      }, 800);
+      }, timeout);
     } catch (error) {
       console.warn("촬영 프레임의 인물 분리를 건너뜁니다.", error);
       state.isSegmenting = false;
@@ -2300,6 +3113,89 @@ function segmentExactFrame(source) {
       resolve(false);
     }
   });
+}
+
+async function segmentCapturedPortrait(captureSource) {
+  const previousMaskAvailable =
+    state.maskAvailable &&
+    state.maskCanvas.width > 0 &&
+    state.maskCanvas.height > 0;
+  const previousPersonBounds = state.personBounds
+    ? { ...state.personBounds }
+    : null;
+  const previousPersonClipping = state.personClipping
+    ? { ...state.personClipping }
+    : null;
+  if (previousMaskAvailable) {
+    cloneCanvasInto(state.maskCanvas, previewMaskBackupCanvas);
+  } else {
+    previewMaskBackupCanvas.width = 0;
+    previewMaskBackupCanvas.height = 0;
+  }
+
+  const resetForExactAttempt = () => {
+    state.segmentationGeneration += 1;
+    state.isSegmenting = false;
+    state.maskAvailable = false;
+    state.personBounds = null;
+    state.personClipping = null;
+    resetTemporalMask();
+    state.maskCanvas.width = 0;
+    state.maskCanvas.height = 0;
+  };
+  const runAttempt = async (maxEdge, timeout) => {
+    resetForExactAttempt();
+    return segmentExactFrame(
+      snapshotSource(
+        captureSource,
+        state.imageInferenceCanvas,
+        maxEdge,
+      ),
+      timeout,
+    );
+  };
+
+  let exactMaskReady = await runAttempt(MAX_STILL_INFERENCE_EDGE, 3000);
+  if (!exactMaskReady) {
+    exactMaskReady = await runAttempt(960, 2400);
+  }
+  if (exactMaskReady) {
+    state.captureMaskQuality = "exact";
+    previewMaskBackupCanvas.width = 0;
+    previewMaskBackupCanvas.height = 0;
+    return true;
+  }
+
+  const captureSize = getSourceSize(captureSource);
+  const previewRatio = state.segmentationFrameCanvas.height
+    ? state.segmentationFrameCanvas.width / state.segmentationFrameCanvas.height
+    : 0;
+  const captureRatio = captureSize.height
+    ? captureSize.width / captureSize.height
+    : 0;
+  const canReusePreviewMask =
+    previousMaskAvailable &&
+    previousPersonBounds &&
+    Math.abs(previewRatio - captureRatio) < 0.035;
+
+  state.personBounds = previousPersonBounds;
+  state.personClipping = previousPersonClipping;
+  if (canReusePreviewMask) {
+    cloneCanvasInto(previewMaskBackupCanvas, state.maskCanvas);
+    state.maskAvailable = true;
+    state.maskUpdatedAt = performance.now();
+    state.captureMaskQuality = "preview";
+    updateAiStatus("ready", "촬영 프레임 인물 경계 사용");
+  } else {
+    state.maskCanvas.width = 0;
+    state.maskCanvas.height = 0;
+    state.maskAvailable = false;
+    state.captureMaskQuality = "soft";
+    updateAiStatus("fallback", "부드러운 인물 합성");
+  }
+  previewMaskBackupCanvas.width = 0;
+  previewMaskBackupCanvas.height = 0;
+  return false;
 }
 
 function canvasToBlob(canvas, type = "image/jpeg", quality = 0.94) {
@@ -2311,10 +3207,307 @@ function canvasToBlob(canvas, type = "image/jpeg", quality = 0.94) {
   });
 }
 
-function setResultBlob(blob) {
+function updateStyleEditStatus(mode, title, detail) {
+  if (!styleEditStatus) return;
+  styleEditStatus.dataset.state = mode;
+  const titleElement = styleEditStatus.querySelector("strong");
+  const detailElement = styleEditStatus.querySelector("small");
+  if (titleElement) titleElement.textContent = title;
+  if (detailElement) detailElement.textContent = detail;
+}
+
+function setResultEditorFinalized(finalized) {
+  state.resultFinalized = finalized;
+  resultStyleEditor?.classList.toggle("is-finalized", finalized);
+  resultStyleEditor
+    ?.querySelectorAll(
+      "[data-result-background], [data-result-custom-background], [data-hair-style], [data-result-look]",
+    )
+    .forEach((button) => {
+      const hairUnavailable =
+        button.matches("[data-hair-style]") &&
+        button.dataset.hairStyle !== "original" &&
+        !state.captureRecipe?.personBounds;
+      button.disabled = finalized || hairUnavailable;
+      if (button.matches("[data-hair-style]")) {
+        button.title = hairUnavailable
+          ? "머리와 얼굴 경계를 찾은 사진에서 사용할 수 있어요."
+          : "";
+      }
+    });
+  if (finalizeStyleButton) {
+    finalizeStyleButton.disabled = finalized;
+    finalizeStyleButton.textContent = finalized
+      ? "스타일 완성됨"
+      : "이 스타일로 완성";
+  }
+}
+
+function setSelectedResultOption(selector, selectedButton) {
+  document.querySelectorAll(selector).forEach((button) => {
+    const isSelected = button === selectedButton;
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  });
+}
+
+function syncResultStyleSelections() {
+  const customBackgroundButton = document.querySelector(
+    "[data-result-custom-background]",
+  );
+  if (customBackgroundButton) {
+    const customImage = customBackgroundButton.querySelector("img");
+    const customAvailable =
+      Boolean(state.customBackground?.naturalWidth) &&
+      Boolean(state.customBackgroundUrl);
+    const customSelected = !state.backgroundPath && customAvailable;
+    customBackgroundButton.hidden = !customAvailable;
+    if (customImage && customAvailable) {
+      customImage.src = state.customBackgroundUrl;
+    }
+    customBackgroundButton.classList.toggle(
+      "is-selected",
+      customSelected,
+    );
+    customBackgroundButton.setAttribute(
+      "aria-pressed",
+      String(customSelected),
+    );
+  }
+  const backgroundButton = Array.from(
+    document.querySelectorAll("[data-result-background]"),
+  ).find((button) => button.dataset.resultBackground === state.backgroundPath);
+  setSelectedResultOption(
+    "[data-result-background]",
+    backgroundButton || null,
+  );
+
+  const hairButton = document.querySelector(
+    `[data-hair-style="${state.hairStyle}"]`,
+  );
+  setSelectedResultOption("[data-hair-style]", hairButton);
+
+  const resultLook =
+    state.look === "paris-film"
+      ? "film"
+      : state.look === "monochrome"
+        ? "monochrome"
+        : state.look;
+  const lookButton = document.querySelector(
+    `[data-result-look="${resultLook}"]`,
+  );
+  setSelectedResultOption("[data-result-look]", lookButton);
+}
+
+function getBackgroundToneForPath(path) {
+  const sourceButton = Array.from(
+    document.querySelectorAll(".background-option[data-background]"),
+  ).find((button) => button.dataset.background === path);
+  return sourceButton?.dataset.tone || "golden";
+}
+
+async function renderCapturedResult(revision = ++state.resultRenderRevision) {
+  const recipe = state.captureRecipe;
+  if (!recipe || revision !== state.resultRenderRevision) return false;
+  window.clearTimeout(state.resultRenderTimer);
+  state.resultRenderTimer = 0;
+  if (finalizeStyleButton) finalizeStyleButton.disabled = true;
+  updateStyleEditStatus(
+    "changing",
+    "선택한 스타일을 적용하는 중",
+    "고해상도 원본과 정밀 인물 경계로 사진을 다시 만들고 있어요.",
+  );
+
+  try {
+    await wait(16);
+    if (revision !== state.resultRenderRevision) return false;
+    const exportContext = exportCanvas.getContext("2d", { alpha: false });
+    renderComposite(
+      exportContext,
+      EXPORT_WIDTH,
+      EXPORT_HEIGHT,
+      recipe.sourceCanvas,
+      recipe,
+    );
+    const blob = await canvasToBlob(exportCanvas);
+    if (revision !== state.resultRenderRevision) return false;
+    setResultBlob(blob, { awaitingFinalize: true });
+    updateStyleEditStatus(
+      "success",
+      "미리보기에 반영했어요",
+      "얼굴 원본은 유지하고 선택한 배경과 헤어 무드만 합성했습니다.",
+    );
+    return true;
+  } catch (error) {
+    console.error("촬영 후 스타일을 적용하지 못했습니다.", error);
+    updateStyleEditStatus(
+      "error",
+      "스타일을 적용하지 못했어요",
+      "다른 스타일을 선택하거나 다시 촬영해 주세요.",
+    );
+    return false;
+  } finally {
+    if (
+      revision === state.resultRenderRevision &&
+      finalizeStyleButton &&
+      !state.resultFinalized
+    ) {
+      finalizeStyleButton.disabled = false;
+    }
+  }
+}
+
+function queueCapturedResultRender() {
+  if (!state.captureRecipe || state.resultFinalized) return;
+  const revision = ++state.resultRenderRevision;
+  window.clearTimeout(state.resultRenderTimer);
+  updateStyleEditStatus(
+    "changing",
+    "선택한 스타일을 준비하는 중",
+    "얼굴 선명도와 머리카락 경계를 그대로 지키며 적용합니다.",
+  );
+  if (finalizeStyleButton) finalizeStyleButton.disabled = true;
+  state.resultRenderTimer = window.setTimeout(() => {
+    state.resultRenderPromise = renderCapturedResult(revision).finally(() => {
+      if (revision === state.resultRenderRevision) {
+        state.resultRenderPromise = null;
+      }
+    });
+  }, 110);
+}
+
+async function flushCapturedResultRender() {
+  let renderSucceeded = true;
+  if (state.resultRenderTimer) {
+    window.clearTimeout(state.resultRenderTimer);
+    state.resultRenderTimer = 0;
+    const revision = state.resultRenderRevision;
+    state.resultRenderPromise = renderCapturedResult(revision).finally(() => {
+      if (revision === state.resultRenderRevision) {
+        state.resultRenderPromise = null;
+      }
+    });
+  }
+  if (state.resultRenderPromise) {
+    renderSucceeded = await state.resultRenderPromise;
+  }
+  return renderSucceeded && Boolean(state.resultBlob);
+}
+
+async function selectResultBackground(button) {
+  if (!state.captureRecipe || state.resultFinalized) return;
+  const path = button.dataset.resultBackground;
+  if (!path) return;
+  const requestId = ++state.resultBackgroundRequest;
+  let settlePendingBackground = null;
+  const pendingBackground = new Promise((resolve) => {
+    settlePendingBackground = resolve;
+  });
+  state.resultBackgroundPromise = pendingBackground;
+  button.disabled = true;
+  if (finalizeStyleButton) finalizeStyleButton.disabled = true;
+  updateStyleEditStatus(
+    "changing",
+    "새 배경을 불러오는 중",
+    "고해상도 배경 위에 촬영한 인물을 다시 배치하고 있어요.",
+  );
+  try {
+    let image = backgroundImageCache.get(path);
+    if (!image) {
+      image = new Image();
+      image.decoding = "async";
+      image.src = path;
+      backgroundImageCache.set(path, image);
+    }
+    await waitForImage(image);
+    if (requestId !== state.resultBackgroundRequest || state.resultFinalized) {
+      return;
+    }
+    state.backgroundImage = image;
+    state.backgroundPath = path;
+    state.backgroundTone = getBackgroundToneForPath(path);
+    const sourceButton = Array.from(
+      document.querySelectorAll(".background-option[data-background]"),
+    ).find((option) => option.dataset.background === path);
+    if (sourceButton) selectBackgroundButton(sourceButton);
+    syncResultStyleSelections();
+    queueCapturedResultRender();
+  } catch {
+    backgroundImageCache.delete(path);
+    updateStyleEditStatus(
+      "error",
+      "배경을 불러오지 못했어요",
+      "잠시 후 다시 선택해 주세요.",
+    );
+  } finally {
+    settlePendingBackground?.();
+    if (state.resultBackgroundPromise === pendingBackground) {
+      state.resultBackgroundPromise = null;
+    }
+    if (!state.resultFinalized) button.disabled = false;
+    if (
+      !state.resultFinalized &&
+      !state.resultBackgroundPromise &&
+      !state.resultRenderTimer &&
+      !state.resultRenderPromise &&
+      finalizeStyleButton
+    ) {
+      finalizeStyleButton.disabled = false;
+    }
+  }
+}
+
+function selectResultCustomBackground(button) {
+  if (
+    !state.captureRecipe ||
+    state.resultFinalized ||
+    !state.customBackground?.naturalWidth
+  ) {
+    return;
+  }
+  state.resultBackgroundRequest += 1;
+  state.resultBackgroundPromise = null;
+  state.backgroundImage = state.customBackground;
+  state.backgroundPath = "";
+  state.backgroundTone = "custom";
+  selectBackgroundButton(byId("backgroundUploadButton"));
+  syncResultStyleSelections();
+  queueCapturedResultRender();
+}
+
+function selectResultHair(button) {
+  if (!state.captureRecipe || state.resultFinalized) return;
+  if (!state.captureRecipe.personBounds) {
+    updateStyleEditStatus(
+      "error",
+      "헤어 무드를 적용할 수 없어요",
+      "머리와 얼굴이 선명하게 보이도록 다시 촬영해 주세요.",
+    );
+    return;
+  }
+  state.hairStyle = button.dataset.hairStyle || "original";
+  syncResultStyleSelections();
+  queueCapturedResultRender();
+}
+
+function selectResultLook(button) {
+  if (!state.captureRecipe || state.resultFinalized) return;
+  const lookMap = {
+    crisp: "crisp",
+    natural: "natural",
+    film: "paris-film",
+    monochrome: "monochrome",
+  };
+  state.look = lookMap[button.dataset.resultLook] || "crisp";
+  syncResultStyleSelections();
+  queueCapturedResultRender();
+}
+
+function setResultBlob(blob, { awaitingFinalize = false } = {}) {
   if (state.resultUrl) URL.revokeObjectURL(state.resultUrl);
   state.resultBlob = blob;
   state.resultUrl = URL.createObjectURL(blob);
+  state.resultRevision += 1;
   state.driveUploadId =
     crypto.randomUUID?.() ||
     `${Date.now()}-${Math.random().toString(36).slice(2)}-photo`;
@@ -2323,8 +3516,10 @@ function setResultBlob(blob) {
   resultImage.src = state.resultUrl;
   setDriveUiState(
     "idle",
-    "Google Drive 자동 저장 대기",
-    "촬영본을 Photo-Mix 폴더에 안전하게 보관할 준비가 됐어요.",
+    awaitingFinalize ? "스타일 확정 후 자동 저장" : "Google Drive 자동 저장 대기",
+    awaitingFinalize
+      ? "‘이 스타일로 완성’을 누르면 최종 사진만 Google Drive에 저장해요."
+      : "촬영본을 Photo-Mix 폴더에 안전하게 보관할 준비가 됐어요.",
   );
 }
 
@@ -2359,17 +3554,24 @@ async function parseJsonResponse(response) {
 
 async function uploadPhotoToDrive({ manualRetry = false } = {}) {
   if (!state.resultBlob) return false;
-  if (state.driveUploadPromise && !manualRetry) {
+  if (state.driveUploadPromise) {
     return state.driveUploadPromise;
   }
+  const resultRevision = state.resultRevision;
+  const resultBlob = state.resultBlob;
+  const uploadId = state.driveUploadId;
+  const filename = state.driveFilename;
+  const isCurrentUpload = () => resultRevision === state.resultRevision;
 
   const upload = async () => {
     const retryDelays = [0, 800, 2000];
-    setDriveUiState(
-      "saving",
-      "Google Drive에 저장하는 중",
-      "Photo-Mix 폴더로 촬영본을 안전하게 전송하고 있어요.",
-    );
+    if (isCurrentUpload()) {
+      setDriveUiState(
+        "saving",
+        "Google Drive에 저장하는 중",
+        "Photo-Mix 폴더로 최종 촬영본을 안전하게 전송하고 있어요.",
+      );
+    }
 
     for (let attempt = 0; attempt < retryDelays.length; attempt += 1) {
       if (retryDelays[attempt]) await wait(retryDelays[attempt]);
@@ -2380,32 +3582,36 @@ async function uploadPhotoToDrive({ manualRetry = false } = {}) {
         const response = await fetch(DRIVE_UPLOAD_ENDPOINT, {
           method: "POST",
           headers: {
-            "Content-Type": state.resultBlob.type || "image/jpeg",
-            "X-Upload-Id": state.driveUploadId,
-            "X-Photo-Filename": encodeURIComponent(state.driveFilename),
+            "Content-Type": resultBlob.type || "image/jpeg",
+            "X-Upload-Id": uploadId,
+            "X-Photo-Filename": encodeURIComponent(filename),
           },
-          body: state.resultBlob,
+          body: resultBlob,
           signal: controller.signal,
         });
         const data = await parseJsonResponse(response);
 
         if (response.ok && data.ok) {
-          setDriveUiState(
-            "success",
-            "Google Drive 저장 완료",
-            `${data.name || state.driveFilename} · Photo-Mix 폴더`,
-          );
-          showToast("촬영한 사진을 Google Drive에 자동 저장했어요.");
+          if (isCurrentUpload()) {
+            setDriveUiState(
+              "success",
+              "Google Drive 저장 완료",
+              `${data.name || filename} · Photo-Mix 폴더`,
+            );
+            showToast("완성한 사진을 Google Drive에 자동 저장했어요.");
+          }
           return true;
         }
 
         if (data.code === "DRIVE_NOT_CONFIGURED") {
-          setDriveUiState(
-            "setup",
-            "Google Drive 연결 설정이 필요해요",
-            "폴더 소유자 권한으로 한 번 연결하면 다음 촬영부터 자동 저장됩니다.",
-            { retry: true },
-          );
+          if (isCurrentUpload()) {
+            setDriveUiState(
+              "setup",
+              "Google Drive 연결 설정이 필요해요",
+              "폴더 소유자 권한으로 한 번 연결하면 다음 촬영부터 자동 저장됩니다.",
+              { retry: true },
+            );
+          }
           return false;
         }
 
@@ -2425,12 +3631,14 @@ async function uploadPhotoToDrive({ manualRetry = false } = {}) {
           error?.retryable !== false;
         if (!retryable || attempt === retryDelays.length - 1) {
           console.warn("Google Drive 자동 저장을 완료하지 못했습니다.", error);
-          setDriveUiState(
-            "error",
-            "Google Drive 저장에 실패했어요",
-            "사진은 이 화면에 그대로 있어요. 연결을 확인한 뒤 다시 시도해 주세요.",
-            { retry: true },
-          );
+          if (isCurrentUpload()) {
+            setDriveUiState(
+              "error",
+              "Google Drive 저장에 실패했어요",
+              "사진은 이 화면에 그대로 있어요. 연결을 확인한 뒤 다시 시도해 주세요.",
+              { retry: true },
+            );
+          }
           return false;
         }
       } finally {
@@ -2441,10 +3649,65 @@ async function uploadPhotoToDrive({ manualRetry = false } = {}) {
     return false;
   };
 
-  state.driveUploadPromise = upload().finally(() => {
-    state.driveUploadPromise = null;
+  const trackedPromise = upload().finally(() => {
+    if (state.driveUploadPromise === trackedPromise) {
+      state.driveUploadPromise = null;
+    }
   });
-  return state.driveUploadPromise;
+  state.driveUploadPromise = trackedPromise;
+  return trackedPromise;
+}
+
+async function finalizeCapturedResult() {
+  if (!state.captureRecipe) return false;
+  if (state.resultBackgroundPromise) {
+    await state.resultBackgroundPromise;
+  }
+  if (!state.captureRecipe) return false;
+  const ready = await flushCapturedResultRender();
+  if (!ready) {
+    updateStyleEditStatus(
+      "error",
+      "사진을 완성하지 못했어요",
+      "잠시 후 다시 눌러 주세요.",
+    );
+    return false;
+  }
+  if (state.resultFinalized) return true;
+
+  setResultEditorFinalized(true);
+  updateStyleEditStatus(
+    "success",
+    "최종 스타일을 완성했어요",
+    "얼굴 선명도와 원본 특징을 유지한 사진입니다.",
+  );
+  const revision = state.resultRevision;
+  void uploadPhotoToDrive().then((saved) => {
+    if (revision !== state.resultRevision || !saved) return;
+    updateStyleEditStatus(
+      "success",
+      "완성본을 안전하게 저장했어요",
+      "공유하거나 기기에 내려받을 수 있어요.",
+    );
+  });
+  return true;
+}
+
+function discardCaptureRecipe() {
+  window.clearTimeout(state.resultRenderTimer);
+  state.resultRenderTimer = 0;
+  state.resultRenderRevision += 1;
+  state.resultRenderPromise = null;
+  state.resultBackgroundRequest += 1;
+  state.resultBackgroundPromise = null;
+  if (state.captureRecipe && state.lookBeforeCapture) {
+    state.look = state.lookBeforeCapture;
+  }
+  state.lookBeforeCapture = null;
+  state.captureRecipe = null;
+  state.hairStyle = "original";
+  captureMaskCanvas.width = 0;
+  captureMaskCanvas.height = 0;
 }
 
 async function checkDriveConnection() {
@@ -2488,6 +3751,7 @@ async function takePhoto() {
   state.captureInProgress = true;
   captureButton.disabled = true;
   setStudioControlsLocked(true);
+  discardCaptureRecipe();
   const timerSeconds = Number(byId("timerSelect").value);
   const sourceTypeAtStart = state.sourceType;
   const sourceTokenAtStart =
@@ -2511,34 +3775,38 @@ async function takePhoto() {
 
     const captureSource =
       state.sourceType === "video"
-        ? await snapshotNextVideoFrame(
+        ? await captureCanonicalStill(
             liveSource,
             captureFrameCanvas,
             MAX_CAPTURE_EDGE,
           )
-        : liveSource;
-    throwIfCaptureCancelled(captureId);
-    if (state.segmenter) {
-      state.segmentationGeneration += 1;
-      state.isSegmenting = false;
-      state.maskAvailable = false;
-      state.personBounds = null;
-      state.personClipping = null;
-      resetTemporalMask();
-      state.maskCanvas.width = 0;
-      state.maskCanvas.height = 0;
-      const exactMaskReady = await segmentExactFrame(
-        snapshotSource(
-          captureSource,
-          state.imageInferenceCanvas,
-          MAX_STILL_INFERENCE_EDGE,
-        ),
-      );
-      if (!exactMaskReady) {
-        throw new Error("촬영 순간의 인물 영역을 정확히 확인하지 못했습니다.");
-      }
+        : snapshotSource(
+            liveSource,
+            captureFrameCanvas,
+            MAX_CAPTURE_EDGE,
+          );
+    if (state.sourceType === "image") {
+      state.captureMethod = "uploaded-photo";
     }
     throwIfCaptureCancelled(captureId);
+    if (state.segmenter) {
+      await segmentCapturedPortrait(captureSource);
+    } else {
+      state.captureMaskQuality = "soft";
+    }
+    throwIfCaptureCancelled(captureId);
+
+    window.clearTimeout(state.resultRenderTimer);
+    state.resultRenderTimer = 0;
+    state.resultRenderRevision += 1;
+    state.resultRenderPromise = null;
+    state.resultBackgroundRequest += 1;
+    state.hairStyle = "original";
+    state.lookBeforeCapture = state.look;
+    state.look = "crisp";
+    state.captureRecipe = createCaptureRecipe();
+    setResultEditorFinalized(false);
+    syncResultStyleSelections();
 
     cameraStage.classList.add("is-captured");
     flashElement.classList.remove("is-active");
@@ -2551,9 +3819,19 @@ async function takePhoto() {
       EXPORT_WIDTH,
       EXPORT_HEIGHT,
       captureSource,
+      state.captureRecipe,
     );
     const blob = await canvasToBlob(exportCanvas);
-    setResultBlob(blob);
+    setResultBlob(blob, { awaitingFinalize: true });
+    updateStyleEditStatus(
+      "success",
+      state.captureMethod === "sensor-photo"
+        ? "센서 정지사진으로 선명하게 촬영했어요"
+        : "가장 선명한 순간을 골라 촬영했어요",
+      state.captureRecipe.personBounds
+        ? "배경과 헤어 무드를 고른 뒤 ‘이 스타일로 완성’을 눌러 주세요."
+        : "이번 사진은 헤어 무드 대신 배경과 사진 스타일을 선택해 완성해 주세요.",
+    );
     setStep(3);
     await wait(240);
     throwIfCaptureCancelled(captureId);
@@ -2565,12 +3843,13 @@ async function takePhoto() {
 
     await exitCameraMode({ cancelCapture: false });
     resultDialog.showModal();
-    void uploadPhotoToDrive();
   } catch (error) {
     if (error?.name === "AbortError") {
+      discardCaptureRecipe();
       setStep(1);
       return;
     }
+    discardCaptureRecipe();
     console.error(error);
     if (state.segmenter && getSource() && !state.maskAvailable) {
       state.staticMaskRequested = false;
@@ -2606,8 +3885,12 @@ function buildFilename() {
   return `오늘-사진-${stamp}.jpg`;
 }
 
-function downloadPhoto({ quiet = false } = {}) {
-  if (!state.resultUrl) return;
+async function downloadPhoto({ quiet = false } = {}) {
+  if (state.captureRecipe && !state.resultFinalized) {
+    const finalized = await finalizeCapturedResult();
+    if (!finalized) return false;
+  }
+  if (!state.resultUrl) return false;
   const link = document.createElement("a");
   link.href = state.resultUrl;
   link.download = buildFilename();
@@ -2615,9 +3898,14 @@ function downloadPhoto({ quiet = false } = {}) {
   link.click();
   link.remove();
   if (!quiet) showToast("사진을 기기에 저장했어요.");
+  return true;
 }
 
 async function sharePhoto() {
+  if (state.captureRecipe && !state.resultFinalized) {
+    const finalized = await finalizeCapturedResult();
+    if (!finalized) return;
+  }
   if (!state.resultBlob) return;
   const file = new File([state.resultBlob], buildFilename(), {
     type: state.resultBlob.type || "image/jpeg",
@@ -2639,15 +3927,17 @@ async function sharePhoto() {
     }
   }
 
-  downloadPhoto({ quiet: true });
-  showToast("이 브라우저에서는 사진 공유창을 열 수 없어 사진을 저장했어요.", 3800);
+  const downloaded = await downloadPhoto({ quiet: true });
+  if (downloaded) {
+    showToast("이 브라우저에서는 사진 공유창을 열 수 없어 사진을 저장했어요.", 3800);
+  }
 }
 
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function openEmailApp() {
+async function openEmailApp() {
   const email = byId("emailInput").value.trim();
   if (!isValidEmail(email)) {
     byId("emailInput").focus();
@@ -2655,7 +3945,8 @@ function openEmailApp() {
     return;
   }
 
-  downloadPhoto({ quiet: true });
+  const downloaded = await downloadPhoto({ quiet: true });
+  if (!downloaded) return;
   showToast("사진을 저장했어요. 메일 작성 화면에서 첨부해 주세요.", 4000);
   const subject = encodeURIComponent("파리에서 만든 인생사진");
   const body = encodeURIComponent(
@@ -2666,7 +3957,7 @@ function openEmailApp() {
   }, 250);
 }
 
-function openSmsApp() {
+async function openSmsApp() {
   const phone = byId("phoneInput").value.trim();
   const compactPhone = phone.replace(/[^\d+]/g, "");
   if (compactPhone.length < 8) {
@@ -2675,7 +3966,8 @@ function openSmsApp() {
     return;
   }
 
-  downloadPhoto({ quiet: true });
+  const downloaded = await downloadPhoto({ quiet: true });
+  if (!downloaded) return;
   showToast("사진을 저장했어요. 문자 작성 화면에서 첨부해 주세요.", 4000);
   const message = encodeURIComponent(
     "파리에서 만든 인생사진을 보내요. 방금 저장된 ‘오늘-사진’ 사진을 첨부해 주세요.",
@@ -2688,6 +3980,7 @@ function openSmsApp() {
 
 async function prepareRetake() {
   if (resultDialog.open) resultDialog.close();
+  discardCaptureRecipe();
   setStep(1);
   cameraStage.scrollIntoView({ behavior: "auto", block: "center" });
 
@@ -2709,6 +4002,7 @@ async function prepareRetake() {
 
 function closeResult() {
   if (resultDialog.open) resultDialog.close();
+  discardCaptureRecipe();
   setStep(1);
 
   if (state.sourceWasCamera && !state.stream) {
@@ -2763,20 +4057,45 @@ function bindControls() {
   document.querySelectorAll(".look-option").forEach((button) => {
     button.addEventListener("click", () => selectLook(button));
   });
+  document.querySelectorAll("[data-result-background]").forEach((button) => {
+    button.addEventListener("click", () => {
+      void selectResultBackground(button);
+    });
+  });
+  document
+    .querySelector("[data-result-custom-background]")
+    ?.addEventListener("click", (event) => {
+      selectResultCustomBackground(event.currentTarget);
+    });
+  document.querySelectorAll("[data-hair-style]").forEach((button) => {
+    button.addEventListener("click", () => selectResultHair(button));
+  });
+  document.querySelectorAll("[data-result-look]").forEach((button) => {
+    button.addEventListener("click", () => selectResultLook(button));
+  });
 
   switchCameraButton.addEventListener("click", switchCamera);
   cameraSelect.addEventListener("change", selectCameraDevice);
   refreshCamerasButton.addEventListener("click", refreshConnectedCameras);
   mirrorButton.addEventListener("click", toggleMirror);
   captureButton.addEventListener("click", takePhoto);
-  byId("downloadButton").addEventListener("click", () => downloadPhoto());
+  byId("downloadButton").addEventListener("click", () => {
+    void downloadPhoto();
+  });
   byId("shareButton").addEventListener("click", sharePhoto);
   byId("emailButton").addEventListener("click", openEmailApp);
   byId("smsButton").addEventListener("click", openSmsApp);
+  finalizeStyleButton?.addEventListener("click", () => {
+    void finalizeCapturedResult();
+  });
   byId("retakeButton").addEventListener("click", prepareRetake);
   byId("resultCloseButton").addEventListener("click", closeResult);
   driveRetryButton?.addEventListener("click", () => {
-    void uploadPhotoToDrive({ manualRetry: true });
+    if (!state.resultFinalized && state.captureRecipe) {
+      void finalizeCapturedResult();
+    } else {
+      void uploadPhotoToDrive({ manualRetry: true });
+    }
   });
   exitCameraModeButton.addEventListener("click", () => {
     void exitCameraMode();
