@@ -8,7 +8,7 @@
     />
     <meta
       name="description"
-      content="카메라로 촬영한 내 모습을 파리의 장면에 자연스럽게 합성하고 Google Drive에 보관하는 브라우저 포토부스"
+      content="파리 배경과 가상 스타·친구 장면에서 근접 투샷을 촬영하고 Google Drive에 보관하는 브라우저 포토부스"
     />
     <meta name="theme-color" content="#f4efe7" />
     <title>오늘, 사진 — 파리 인생사진 스튜디오</title>
@@ -60,7 +60,7 @@
         <div class="studio-heading">
           <div>
             <p class="section-kicker">YOUR MOMENT IN PARIS</p>
-            <h1 id="studio-title">파리에서, 가장 나다운 한 장</h1>
+            <h1 id="studio-title">파리에서, 함께 만드는 가장 가까운 한 장</h1>
           </div>
           <div class="step-indicator" aria-label="현재 단계">
             <span class="is-active">1</span><i></i><span>2</span><i></i><span>3</span>
@@ -131,7 +131,7 @@
               id="previewCanvas"
               width="720"
               height="900"
-              aria-label="파리 배경과 합성된 촬영 미리보기"
+              aria-label="선택한 파리 장면과 합성된 촬영 미리보기"
             ></canvas>
             <video id="cameraVideo" autoplay muted playsinline aria-hidden="true"></video>
             <img id="portraitSource" alt="" aria-hidden="true" />
@@ -144,8 +144,8 @@
             </div>
 
             <div class="composition-badge" aria-hidden="true">
-              <span>REFERENCE</span>
-              <strong>에펠탑은 크게 · 인물은 중앙 하단</strong>
+              <span id="compositionBadgeEyebrow">REFERENCE</span>
+              <strong id="compositionBadgeTitle">에펠탑은 크게 · 인물은 중앙 하단</strong>
             </div>
 
             <div class="pose-guide" id="poseGuide" aria-hidden="true">
@@ -159,7 +159,7 @@
             </div>
 
             <div class="framing-feedback" id="framingFeedback" role="status" aria-live="polite">
-              <strong>전신 · 1.5m부터</strong>
+              <strong id="framingFeedbackTitle">전신 · 1.5m부터</strong>
               <span>표시선에 서서 머리부터 발끝까지 맞춰주세요</span>
             </div>
 
@@ -170,8 +170,8 @@
                   <circle cx="16" cy="17" r="5" />
                 </svg>
               </span>
-              <strong>카메라를 켜고 파리 안으로 들어가세요</strong>
-              <p>약 1.5m에서 시작해 머리와 발이 모두 보일 때까지 뒤로 이동해 주세요.</p>
+              <strong id="emptyStateTitle">카메라를 켜고 파리 안으로 들어가세요</strong>
+              <p id="emptyStateDescription">약 1.5m에서 시작해 머리와 발이 모두 보일 때까지 뒤로 이동해 주세요.</p>
               <div class="empty-actions">
                 <button class="button button-light" id="stageCameraButton" type="button">
                   카메라 켜기
@@ -191,7 +191,7 @@
                 <path d="M12 21s6-5.3 6-11a6 6 0 1 0-12 0c0 5.7 6 11 6 11Z" />
                 <circle cx="12" cy="10" r="2" />
               </svg>
-              PARIS · TODAY
+              <span id="locationTagText">PARIS · TODAY</span>
             </div>
           </div>
 
@@ -228,12 +228,38 @@
           <div class="panel-heading">
             <div>
               <span>01</span>
-              <h2>배경 선택</h2>
+              <h2>사진 장면</h2>
             </div>
-            <p>10개의 파리 장면 중 오늘의 분위기를 고르세요.</p>
+            <p>나만의 파리 또는 가까이 함께 찍을 인물을 고르세요.</p>
           </div>
 
-          <div class="background-grid" id="backgroundGrid">
+          <div class="scene-mode-switch" role="group" aria-label="사진 장면 유형">
+            <button
+              class="is-selected"
+              type="button"
+              data-scene-mode="solo"
+              aria-pressed="true"
+            >
+              <span aria-hidden="true">◇</span>
+              <span><strong>나만의 파리</strong><small>배경 속에 나만 담기</small></span>
+            </button>
+            <button
+              type="button"
+              data-scene-mode="together"
+              aria-pressed="false"
+            >
+              <span aria-hidden="true">●●</span>
+              <span><strong>인물과 함께</strong><small>스타·친구와 근접 투샷</small></span>
+            </button>
+          </div>
+
+          <div class="scene-options-panel" id="soloScenePanel">
+            <div class="scene-options-heading">
+              <strong>파리 배경</strong>
+              <span>10개 장면</span>
+            </div>
+
+            <div class="background-grid" id="backgroundGrid">
             <button
               class="background-option is-selected"
               type="button"
@@ -387,6 +413,96 @@
             </svg>
             <span><strong>내 배경 추가</strong><small>JPG · PNG, 최대 24MB</small></span>
           </button>
+          </div>
+
+          <div class="scene-options-panel companion-scene-panel" id="companionScenePanel" hidden>
+            <div class="scene-options-heading">
+              <strong>함께할 인물</strong>
+              <span>가까이 투샷 3개</span>
+            </div>
+
+            <div class="companion-grid" id="companionGrid">
+              <button
+                class="background-option companion-option"
+                type="button"
+                data-background="/scenes/fictional-kpop-rooftop.webp"
+                data-tone="golden"
+                data-scene-id="fictional-kpop-rooftop"
+                aria-label="가상 K-POP 스타와 파리 루프톱 근접 투샷"
+                aria-pressed="false"
+              >
+                <span class="background-thumb">
+                  <img src="/scenes/fictional-kpop-rooftop-thumb.webp" alt="" />
+                  <em>가상 스타</em>
+                  <i aria-hidden="true">✓</i>
+                </span>
+                <strong>K-POP 루프톱</strong>
+                <small>골든아워 · 왼쪽 자리</small>
+              </button>
+              <button
+                class="background-option companion-option"
+                type="button"
+                data-background="/scenes/fictional-actor-premiere.webp"
+                data-tone="film"
+                data-scene-id="fictional-actor-premiere"
+                aria-label="가상 영화배우와 파리 프리미어 근접 투샷"
+                aria-pressed="false"
+              >
+                <span class="background-thumb">
+                  <img src="/scenes/fictional-actor-premiere-thumb.webp" alt="" loading="lazy" />
+                  <em>가상 배우</em>
+                  <i aria-hidden="true">✓</i>
+                </span>
+                <strong>영화 프리미어</strong>
+                <small>블루아워 · 오른쪽 자리</small>
+              </button>
+              <button
+                class="background-option companion-option"
+                type="button"
+                data-background="/scenes/paris-friends-cafe.webp"
+                data-tone="golden"
+                data-scene-id="paris-friends-cafe"
+                aria-label="파리 친구들과 카페 앞 근접 그룹 사진"
+                aria-pressed="false"
+              >
+                <span class="background-thumb">
+                  <img src="/scenes/paris-friends-cafe-thumb.webp" alt="" loading="lazy" />
+                  <em>친구 2명</em>
+                  <i aria-hidden="true">✓</i>
+                </span>
+                <strong>파리 친구들</strong>
+                <small>카페 산책 · 왼쪽 자리</small>
+              </button>
+            </div>
+
+            <p class="companion-disclosure">
+              <span aria-hidden="true">AI</span>
+              스타 장면은 특정 실존 연예인이 아닌 가상 인물로 제작된 합성 이미지입니다.
+            </p>
+          </div>
+
+          <fieldset class="framing-mode-selector">
+            <legend>촬영 구도</legend>
+            <div role="group" aria-label="촬영 구도 선택">
+              <button
+                class="is-selected"
+                type="button"
+                data-framing-mode="full"
+                aria-pressed="true"
+              >
+                <strong>전신</strong>
+                <small>약 1.5m</small>
+              </button>
+              <button
+                type="button"
+                data-framing-mode="close"
+                aria-pressed="false"
+              >
+                <strong>가까이</strong>
+                <small>약 70cm · 얼굴+어깨</small>
+              </button>
+            </div>
+          </fieldset>
         </section>
 
         <section class="control-panel looks-section" id="looksPanel">
@@ -430,13 +546,13 @@
           <div class="panel-heading compact">
             <div>
               <span>03</span>
-              <h2>1.5m 전신 촬영 안내</h2>
+              <h2 id="shootingGuideTitle">1.5m 전신 촬영 안내</h2>
             </div>
           </div>
           <ol class="shooting-guide-list">
-            <li><span>1</span><p><strong>카메라 높이</strong>허리와 가슴 사이에 렌즈를 맞춰요.</p></li>
-            <li><span>2</span><p><strong>촬영 거리</strong>약 1.5m에서 시작해 전신이 보일 때까지 뒤로 이동하세요.</p></li>
-            <li><span>3</span><p><strong>구도</strong>화면 안내가 초록색이 되면 정면을 보고 촬영해요.</p></li>
+            <li><span>1</span><p><strong>카메라 높이</strong><span id="shootingGuideCamera">허리와 가슴 사이에 렌즈를 맞춰요.</span></p></li>
+            <li><span>2</span><p><strong>촬영 거리</strong><span id="shootingGuideDistance">약 1.5m에서 시작해 전신이 보일 때까지 뒤로 이동하세요.</span></p></li>
+            <li><span>3</span><p><strong>구도</strong><span id="shootingGuidePose">화면 안내가 초록색이 되면 정면을 보고 촬영해요.</span></p></li>
           </ol>
           <div class="quick-start">
             <button class="button button-primary" id="heroCameraButton" type="button">
@@ -501,7 +617,7 @@
                 <span>촬영 후 꾸미기</span>
                 <h3 id="resultStyleEditorTitle">나에게 어울리는 한 장으로</h3>
               </div>
-              <p>먼저 선명하게 촬영한 얼굴은 그대로 두고 배경과 스타일만 자연스럽게 바꿔보세요.</p>
+              <p>선명하게 촬영한 얼굴은 그대로 두고 파리 배경이나 동행 장면을 자연스럽게 바꿔보세요.</p>
             </div>
 
             <fieldset class="result-style-group result-background-group">
@@ -606,6 +722,36 @@
                 >
                   <img src="/backgrounds/thumbs/paris-opera-evening.webp" alt="" />
                   <span>오페라</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/scenes/fictional-kpop-rooftop.webp"
+                  aria-label="가상 K-POP 스타와 루프톱 근접 투샷"
+                  aria-pressed="false"
+                >
+                  <img src="/scenes/fictional-kpop-rooftop-thumb.webp" alt="" />
+                  <span>K-POP 스타</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/scenes/fictional-actor-premiere.webp"
+                  aria-label="가상 영화배우와 프리미어 근접 투샷"
+                  aria-pressed="false"
+                >
+                  <img src="/scenes/fictional-actor-premiere-thumb.webp" alt="" />
+                  <span>영화배우</span>
+                </button>
+                <button
+                  class="result-background-option"
+                  type="button"
+                  data-result-background="/scenes/paris-friends-cafe.webp"
+                  aria-label="파리 친구들과 카페 근접 그룹 사진"
+                  aria-pressed="false"
+                >
+                  <img src="/scenes/paris-friends-cafe-thumb.webp" alt="" />
+                  <span>파리 친구들</span>
                 </button>
                 <button
                   class="result-background-option"

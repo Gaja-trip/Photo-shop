@@ -35,8 +35,23 @@ const driveRetryButton = byId("driveRetryButton");
 const resultStyleEditor = byId("resultStyleEditor");
 const styleEditStatus = byId("styleEditStatus");
 const finalizeStyleButton = byId("finalizeStyleButton");
+const emptyState = byId("emptyState");
+const emptyStateTitle = byId("emptyStateTitle");
+const emptyStateDescription = byId("emptyStateDescription");
+const compositionBadgeEyebrow = byId("compositionBadgeEyebrow");
+const compositionBadgeTitle = byId("compositionBadgeTitle");
+const framingFeedbackTitle = byId("framingFeedbackTitle");
+const locationTagText = byId("locationTagText");
+const soloScenePanel = byId("soloScenePanel");
+const companionScenePanel = byId("companionScenePanel");
+const shootingGuideTitle = byId("shootingGuideTitle");
+const shootingGuideCamera = byId("shootingGuideCamera");
+const shootingGuideDistance = byId("shootingGuideDistance");
+const shootingGuidePose = byId("shootingGuidePose");
 
 const DEFAULT_BACKGROUND_PATH = "/backgrounds/paris-eiffel-closeup.webp";
+const DEFAULT_COMPANION_BACKGROUND_PATH =
+  "/scenes/fictional-kpop-rooftop.webp";
 const DRIVE_UPLOAD_ENDPOINT = "/api/photos";
 const MEDIAPIPE_VERSION = "0.10.35";
 const MEDIAPIPE_MODULE =
@@ -53,9 +68,52 @@ const SEGMENTATION_INTERVAL = 92;
 const MAX_INFERENCE_EDGE = 640;
 const MAX_STILL_INFERENCE_EDGE = 1600;
 const MAX_CAPTURE_EDGE = 4096;
-const REFERENCE_PERSON_HEIGHT = 0.44;
-const REFERENCE_GROUND_Y = 0.975;
-const REFERENCE_PERSON_CENTER_X = 0.52;
+const FRAMING_PRESETS = {
+  full: {
+    personHeight: 0.44,
+    groundY: 0.975,
+    personCenterX: 0.52,
+    distance: "1.5m",
+  },
+  close: {
+    personHeight: 0.69,
+    groundY: 0.95,
+    personCenterX: 0.5,
+    distance: "70cm",
+  },
+};
+const COMPANION_SCENES = {
+  "fictional-kpop-rooftop": {
+    path: "/scenes/fictional-kpop-rooftop.webp",
+    personCenterX: 0.3,
+    personHeight: 0.72,
+    groundY: 0.96,
+    title: "K-POP 스타와 루프톱",
+    location: "PARIS · STAR MOMENT",
+  },
+  "fictional-actor-premiere": {
+    path: "/scenes/fictional-actor-premiere.webp",
+    personCenterX: 0.73,
+    personHeight: 0.82,
+    groundY: 0.97,
+    title: "영화배우와 프리미어",
+    location: "PARIS · PREMIERE",
+  },
+  "paris-friends-cafe": {
+    path: "/scenes/paris-friends-cafe.webp",
+    personCenterX: 0.24,
+    personHeight: 0.8,
+    groundY: 0.98,
+    title: "파리 친구들과 카페",
+    location: "PARIS · TOGETHER",
+  },
+};
+const COMPANION_SCENE_BY_PATH = new Map(
+  Object.entries(COMPANION_SCENES).map(([id, scene]) => [
+    scene.path,
+    { ...scene, id },
+  ]),
+);
 
 const defaultBackground = new Image();
 defaultBackground.decoding = "async";
@@ -67,6 +125,11 @@ const state = {
   customBackground: null,
   customBackgroundUrl: "",
   backgroundTone: "golden",
+  sceneMode: "solo",
+  sceneId: "",
+  framingMode: "full",
+  lastSoloBackgroundPath: DEFAULT_BACKGROUND_PATH,
+  lastCompanionBackgroundPath: DEFAULT_COMPANION_BACKGROUND_PATH,
   look: "natural",
   lookBeforeCapture: null,
   hairStyle: "original",
@@ -478,22 +541,48 @@ function getLayerPersonBounds(
   };
 }
 
+function getActiveCompanionScene() {
+  return state.sceneMode === "together"
+    ? COMPANION_SCENES[state.sceneId] || null
+    : null;
+}
+
+function getActiveFramingPreset() {
+  const base =
+    FRAMING_PRESETS[state.framingMode] || FRAMING_PRESETS.full;
+  const companionScene = getActiveCompanionScene();
+  if (state.framingMode !== "close" || !companionScene) {
+    return base;
+  }
+  return {
+    ...base,
+    personHeight: companionScene.personHeight,
+    groundY: companionScene.groundY,
+    personCenterX: companionScene.personCenterX,
+  };
+}
+
 function getPersonPlacement(width, height, personBounds) {
+  const framing = getActiveFramingPreset();
   if (personBounds) {
     const requestedHeight =
-      height * REFERENCE_PERSON_HEIGHT * (state.personScale / 0.9);
-    const scale = clamp(requestedHeight / personBounds.height, 0.32, 1.72);
+      height * framing.personHeight * (state.personScale / 0.9);
+    const scale = clamp(
+      requestedHeight / personBounds.height,
+      0.32,
+      state.framingMode === "close" ? 2.8 : 1.72,
+    );
     const drawWidth = width * scale;
     const drawHeight = height * scale;
     const groundY =
-      height * REFERENCE_GROUND_Y + height * state.personOffsetY;
+      height * framing.groundY + height * state.personOffsetY;
     return {
-      x: width * REFERENCE_PERSON_CENTER_X - personBounds.centerX * scale,
+      x: width * framing.personCenterX - personBounds.centerX * scale,
       y: groundY - personBounds.bottom * scale,
       width: drawWidth,
       height: drawHeight,
       scale,
-      groundX: width * REFERENCE_PERSON_CENTER_X,
+      groundX: width * framing.personCenterX,
       groundY,
       subjectWidth: personBounds.width * scale,
       subjectHeight: personBounds.height * scale,
@@ -504,13 +593,16 @@ function getPersonPlacement(width, height, personBounds) {
   const drawWidth = width * scale;
   const drawHeight = height * scale;
   return {
-    x: (width - drawWidth) / 2,
-    y: height - drawHeight + height * state.personOffsetY,
+    x: width * framing.personCenterX - drawWidth / 2,
+    y:
+      height * framing.groundY -
+      drawHeight +
+      height * state.personOffsetY,
     width: drawWidth,
     height: drawHeight,
     scale,
-    groundX: width / 2,
-    groundY: height * 0.91 + height * state.personOffsetY,
+    groundX: width * framing.personCenterX,
+    groundY: height * framing.groundY + height * state.personOffsetY,
     subjectWidth: width * 0.46 * scale,
     subjectHeight: height * 0.7 * scale,
   };
@@ -533,13 +625,15 @@ function setFramingFeedback(mode, message) {
 }
 
 function updateFramingGuidance() {
+  const isClose = state.framingMode === "close";
+  const waitingMessage = isClose
+    ? "카메라에서 약 70cm 거리로 얼굴과 어깨를 화면 안에 맞춰주세요"
+    : "약 1.5m에서 시작해 머리와 발이 보일 때까지 뒤로 이동해 주세요";
+
   if (!getSource() || !state.personBounds) {
     state.framingReady = false;
     state.framingReadySince = 0;
-    setFramingFeedback(
-      "waiting",
-      "약 1.5m에서 시작해 머리와 발이 보일 때까지 뒤로 이동해 주세요",
-    );
+    setFramingFeedback("waiting", waitingMessage);
     return;
   }
 
@@ -560,37 +654,49 @@ function updateFramingGuidance() {
 
   if (!personBounds) {
     state.framingReady = false;
-    setFramingFeedback(
-      "waiting",
-      "약 1.5m에서 시작해 머리와 발이 모두 보이게 맞춰주세요",
-    );
+    setFramingFeedback("waiting", waitingMessage);
     return;
   }
 
   const sourceHeight = personBounds.height / PREVIEW_HEIGHT;
   const visualCenterX = personBounds.centerX / PREVIEW_WIDTH;
-  const sourceClipped =
-    Boolean(
-      state.personClipping?.top ||
-      state.personClipping?.bottom ||
-      state.personClipping?.left ||
-      state.personClipping?.right,
-    ) ||
-    personBounds.top <= 2 ||
-    personBounds.bottom >= PREVIEW_HEIGHT - 2 ||
-    personBounds.left <= 2 ||
-    personBounds.right >= PREVIEW_WIDTH - 2 ||
-    state.personBounds.top <= 0.018 ||
-    state.personBounds.bottom >= 0.985 ||
-    state.personBounds.left <= 0.018 ||
-    state.personBounds.right >= 0.982;
+  const sourceClipped = isClose
+    ? Boolean(
+        state.personClipping?.top ||
+          state.personClipping?.left ||
+          state.personClipping?.right,
+      ) ||
+      personBounds.top <= 2 ||
+      personBounds.left <= 2 ||
+      personBounds.right >= PREVIEW_WIDTH - 2 ||
+      state.personBounds.top <= 0.018 ||
+      state.personBounds.left <= 0.018 ||
+      state.personBounds.right >= 0.982
+    : Boolean(
+        state.personClipping?.top ||
+          state.personClipping?.bottom ||
+          state.personClipping?.left ||
+          state.personClipping?.right,
+      ) ||
+      personBounds.top <= 2 ||
+      personBounds.bottom >= PREVIEW_HEIGHT - 2 ||
+      personBounds.left <= 2 ||
+      personBounds.right >= PREVIEW_WIDTH - 2 ||
+      state.personBounds.top <= 0.018 ||
+      state.personBounds.bottom >= 0.985 ||
+      state.personBounds.left <= 0.018 ||
+      state.personBounds.right >= 0.982;
 
   let mode = "warning";
   let message = "";
-  if (sourceClipped || sourceHeight > 0.92) {
-    message = "반걸음 뒤로 이동해 머리와 발끝을 모두 보여주세요";
-  } else if (sourceHeight < 0.52) {
-    message = "반걸음 앞으로 이동하면 인물이 더 선명하게 촬영돼요";
+  if (sourceClipped || sourceHeight > (isClose ? 0.96 : 0.92)) {
+    message = isClose
+      ? "조금 뒤로 이동해 머리와 양쪽 어깨를 모두 보여주세요"
+      : "반걸음 뒤로 이동해 머리와 발끝을 모두 보여주세요";
+  } else if (sourceHeight < (isClose ? 0.42 : 0.52)) {
+    message = isClose
+      ? "조금 더 가까이 오면 동행인과 자연스러운 투샷이 돼요"
+      : "반걸음 앞으로 이동하면 인물이 더 선명하게 촬영돼요";
   } else if (visualCenterX < 0.42) {
     message = "화면 오른쪽으로 조금 이동해 중앙선에 맞춰주세요";
   } else if (visualCenterX > 0.58) {
@@ -602,8 +708,12 @@ function updateFramingGuidance() {
     state.framingReady = stable;
     mode = stable ? "ready" : "waiting";
     message = stable
-      ? "좋아요 — 그 자리에서 정면을 보고 촬영하세요"
-      : "구도가 맞았어요 — 잠시 그대로 서주세요";
+      ? isClose
+        ? "좋아요 — 동행인과 눈높이가 맞았어요. 그대로 촬영하세요"
+        : "좋아요 — 그 자리에서 정면을 보고 촬영하세요"
+      : isClose
+        ? "눈높이가 맞았어요 — 잠시 그대로 있어주세요"
+        : "구도가 맞았어요 — 잠시 그대로 서주세요";
     setFramingFeedback(mode, message);
     return;
   }
@@ -614,7 +724,7 @@ function updateFramingGuidance() {
 }
 
 function drawGroundingShadow(context, width, height, placement, environment) {
-  if (state.shadowStrength <= 0) return;
+  if (state.shadowStrength <= 0 || state.framingMode === "close") return;
   const luminance = environment?.luminance ?? 0.58;
   const red = Math.round((environment?.red ?? 120) * 0.2);
   const green = Math.round((environment?.green ?? 110) * 0.18);
@@ -1485,7 +1595,9 @@ function handlePersonMaskMiss() {
     } else {
       updateAiStatus("fallback", "사진 속 인물을 찾지 못했어요");
       showCameraMessage(
-        "머리부터 발끝까지 선명하게 보이는 사진을 다시 불러와 주세요.",
+        state.framingMode === "close"
+          ? "얼굴과 양쪽 어깨가 선명하게 보이는 사진을 다시 불러와 주세요."
+          : "머리부터 발끝까지 선명하게 보이는 사진을 다시 불러와 주세요.",
       );
     }
   } else {
@@ -2619,7 +2731,11 @@ async function usePortraitFile(file) {
       updateAiStatus("fallback", "소프트 인물 합성");
       updateCaptureReadiness();
     }
-    showToast("사진을 불러왔어요. 배경과 무드를 골라보세요.");
+    showToast(
+      state.sceneMode === "together"
+        ? "사진을 불러왔어요. 동행인 옆 점선 자리에 맞춰보세요."
+        : "사진을 불러왔어요. 장면과 무드를 골라보세요.",
+    );
     cameraStage.scrollIntoView({ behavior: "smooth", block: "center" });
   } catch {
     showToast("사진을 불러오지 못했어요. 다른 파일을 선택해 주세요.");
@@ -2631,6 +2747,148 @@ function revokeCustomBackgroundUrl() {
     URL.revokeObjectURL(state.customBackgroundUrl);
     state.customBackgroundUrl = "";
   }
+}
+
+function findBackgroundButtonByPath(path) {
+  return Array.from(
+    document.querySelectorAll(".background-option[data-background]"),
+  ).find((button) => button.dataset.background === path);
+}
+
+function updateFramingModeUi() {
+  const isClose = state.framingMode === "close";
+  const isTogether = state.sceneMode === "together";
+  const companionScene = getActiveCompanionScene();
+  const framing = getActiveFramingPreset();
+
+  document.querySelectorAll("[data-framing-mode]").forEach((button) => {
+    const isSelected = button.dataset.framingMode === state.framingMode;
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  });
+
+  cameraStage.classList.toggle("framing-close", isClose);
+  cameraStage.style.setProperty(
+    "--guide-x",
+    `${Math.round(framing.personCenterX * 1000) / 10}%`,
+  );
+  framingFeedbackTitle.textContent = isClose
+    ? "근접 · 약 70cm"
+    : "전신 · 1.5m부터";
+  compositionBadgeEyebrow.textContent = isTogether
+    ? "TOGETHER GUIDE"
+    : isClose
+      ? "CLOSE-UP GUIDE"
+      : "REFERENCE";
+  compositionBadgeTitle.textContent = isTogether
+    ? `${companionScene?.title || "동행인"} · 빈 자리에 눈높이 맞추기`
+    : isClose
+      ? "얼굴은 눈높이선 · 양쪽 어깨는 화면 안쪽"
+      : "배경은 크게 · 인물은 중앙 하단";
+  locationTagText.textContent =
+    companionScene?.location || "PARIS · TODAY";
+  previewCanvas.setAttribute(
+    "aria-label",
+    isTogether
+      ? `${companionScene?.title || "선택한 인물"}와 합성된 근접 촬영 미리보기`
+      : "선택한 파리 장면과 합성된 촬영 미리보기",
+  );
+
+  if (isTogether) {
+    emptyStateTitle.textContent = `${companionScene?.title || "동행인"} 옆 빈자리에 서세요`;
+    emptyStateDescription.textContent =
+      "카메라를 켠 뒤 약 70cm 거리에서 얼굴과 어깨를 점선 가이드에 맞춰주세요.";
+  } else if (isClose) {
+    emptyStateTitle.textContent = "파리를 배경으로 가까이 다가오세요";
+    emptyStateDescription.textContent =
+      "약 70cm 거리에서 얼굴과 양쪽 어깨가 모두 보이도록 맞춰주세요.";
+  } else {
+    emptyStateTitle.textContent = "카메라를 켜고 파리 안으로 들어가세요";
+    emptyStateDescription.textContent =
+      "약 1.5m에서 시작해 머리와 발이 모두 보일 때까지 뒤로 이동해 주세요.";
+  }
+
+  if (isClose) {
+    shootingGuideTitle.textContent = isTogether
+      ? "70cm 근접 투샷 안내"
+      : "70cm 근접 촬영 안내";
+    shootingGuideCamera.textContent =
+      "렌즈를 눈높이에 두고 얼굴이 위에서 눌리지 않게 맞춰요.";
+    shootingGuideDistance.textContent =
+      "약 70cm에서 얼굴과 양쪽 어깨가 모두 보이도록 서세요.";
+    shootingGuidePose.textContent = isTogether
+      ? "점선 자리에 얼굴을 맞추고 동행인 쪽으로 어깨를 살짝 기울여요."
+      : "눈높이선에 시선을 맞추고 정면을 향해 자연스럽게 웃어보세요.";
+  } else {
+    shootingGuideTitle.textContent = "1.5m 전신 촬영 안내";
+    shootingGuideCamera.textContent =
+      "허리와 가슴 사이에 렌즈를 맞춰요.";
+    shootingGuideDistance.textContent =
+      "약 1.5m에서 시작해 전신이 보일 때까지 뒤로 이동하세요.";
+    shootingGuidePose.textContent =
+      "화면 안내가 초록색이 되면 정면을 보고 촬영해요.";
+  }
+
+  updateFramingGuidance();
+}
+
+function updateSceneModeUi() {
+  document.querySelectorAll("[data-scene-mode]").forEach((button) => {
+    const isSelected = button.dataset.sceneMode === state.sceneMode;
+    button.classList.toggle("is-selected", isSelected);
+    button.setAttribute("aria-pressed", String(isSelected));
+  });
+
+  soloScenePanel.hidden = state.sceneMode !== "solo";
+  companionScenePanel.hidden = state.sceneMode !== "together";
+  const previewBackground =
+    state.backgroundPath || state.customBackgroundUrl || DEFAULT_BACKGROUND_PATH;
+  emptyState.style.setProperty(
+    "--empty-scene-background",
+    `url("${previewBackground}")`,
+  );
+  updateFramingModeUi();
+}
+
+function applySceneMetadataForPath(path, { resetFraming = true } = {}) {
+  const companionScene = COMPANION_SCENE_BY_PATH.get(path);
+  if (companionScene) {
+    state.sceneMode = "together";
+    state.sceneId = companionScene.id;
+    state.lastCompanionBackgroundPath = path;
+    if (resetFraming) state.framingMode = "close";
+  } else {
+    state.sceneMode = "solo";
+    state.sceneId = "";
+    if (path) state.lastSoloBackgroundPath = path;
+    if (resetFraming) state.framingMode = "full";
+  }
+  updateSceneModeUi();
+}
+
+function selectSceneMode(mode) {
+  if (state.captureInProgress || mode === state.sceneMode) return;
+  const path =
+    mode === "together"
+      ? state.lastCompanionBackgroundPath
+      : state.lastSoloBackgroundPath;
+  const button = findBackgroundButtonByPath(path);
+  if (button) {
+    void selectBuiltInBackground(button);
+  }
+}
+
+function selectFramingMode(button) {
+  if (state.captureInProgress) return;
+  const mode = button.dataset.framingMode;
+  if (!FRAMING_PRESETS[mode] || mode === state.framingMode) return;
+  state.framingMode = mode;
+  updateFramingModeUi();
+  showToast(
+    mode === "close"
+      ? "가까이 촬영으로 바꿨어요. 얼굴과 어깨를 가이드에 맞춰주세요."
+      : "전신 촬영으로 바꿨어요. 머리부터 발끝까지 맞춰주세요.",
+  );
 }
 
 function selectBackgroundButton(selectedButton) {
@@ -2666,6 +2924,7 @@ async function useBackgroundFile(file) {
     state.backgroundImage = image;
     state.backgroundPath = "";
     state.backgroundTone = "custom";
+    applySceneMetadataForPath("", { resetFraming: true });
 
     const uploadButton = byId("backgroundUploadButton");
     uploadButton.classList.add("has-preview");
@@ -2700,6 +2959,7 @@ async function selectBuiltInBackground(button) {
     state.backgroundImage = image;
     state.backgroundPath = path;
     state.backgroundTone = button.dataset.tone || "golden";
+    applySceneMetadataForPath(path, { resetFraming: true });
     selectBackgroundButton(button);
   } catch {
     backgroundImageCache.delete(path);
@@ -3054,7 +3314,7 @@ async function runCountdown(seconds, captureId) {
 function setStudioControlsLocked(locked) {
   document
     .querySelectorAll(
-      ".background-option, #backgroundUploadButton, .look-option, .realism-tuning input, #timerSelect, #uploadShortcut, #mirrorButton, #switchCameraButton, #cameraSelect, #refreshCamerasButton",
+      ".background-option, #backgroundUploadButton, [data-scene-mode], [data-framing-mode], .look-option, .realism-tuning input, #timerSelect, #uploadShortcut, #mirrorButton, #switchCameraButton, #cameraSelect, #refreshCamerasButton",
     )
     .forEach((control) => {
       control.disabled = locked;
@@ -3335,7 +3595,7 @@ async function renderCapturedResult(revision = ++state.resultRenderRevision) {
     updateStyleEditStatus(
       "success",
       "미리보기에 반영했어요",
-      "얼굴 원본은 유지하고 선택한 배경과 헤어 무드만 합성했습니다.",
+      "얼굴 원본은 유지하고 선택한 배경·동행 장면과 헤어 무드만 합성했습니다.",
     );
     return true;
   } catch (error) {
@@ -3426,6 +3686,7 @@ async function selectResultBackground(button) {
     state.backgroundImage = image;
     state.backgroundPath = path;
     state.backgroundTone = getBackgroundToneForPath(path);
+    applySceneMetadataForPath(path, { resetFraming: true });
     const sourceButton = Array.from(
       document.querySelectorAll(".background-option[data-background]"),
     ).find((option) => option.dataset.background === path);
@@ -3470,6 +3731,7 @@ function selectResultCustomBackground(button) {
   state.backgroundImage = state.customBackground;
   state.backgroundPath = "";
   state.backgroundTone = "custom";
+  applySceneMetadataForPath("", { resetFraming: true });
   selectBackgroundButton(byId("backgroundUploadButton"));
   syncResultStyleSelections();
   queueCapturedResultRender();
@@ -4053,6 +4315,14 @@ function bindControls() {
       void selectBuiltInBackground(button);
     });
   });
+  document.querySelectorAll("[data-scene-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectSceneMode(button.dataset.sceneMode);
+    });
+  });
+  document.querySelectorAll("[data-framing-mode]").forEach((button) => {
+    button.addEventListener("click", () => selectFramingMode(button));
+  });
 
   document.querySelectorAll(".look-option").forEach((button) => {
     button.addEventListener("click", () => selectLook(button));
@@ -4186,6 +4456,7 @@ function bindControls() {
 
 async function initialize() {
   bindControls();
+  updateSceneModeUi();
   void checkDriveConnection();
   await refreshCameraDevices();
   try {
