@@ -541,7 +541,7 @@ svg {
 .composition-axis {
   top: 50%;
   bottom: 3.5%;
-  left: 50%;
+  left: var(--guide-x, 50%);
   width: 1px;
   background: repeating-linear-gradient(
     180deg,
@@ -586,9 +586,9 @@ svg {
 }
 
 .composition-footline {
-  right: 34%;
+  left: calc(var(--guide-x, 50%) - 11%);
   bottom: 3.5%;
-  left: 34%;
+  width: 22%;
   height: 1px;
   background: linear-gradient(
     90deg,
@@ -656,7 +656,7 @@ svg {
 
 .pose-guide > span {
   position: absolute;
-  left: 50%;
+  left: var(--guide-x, 50%);
   display: block;
   border-color: var(--guide-color);
 }
@@ -688,12 +688,12 @@ svg {
 }
 
 .pose-guide > .pose-arm-left {
-  left: 44.2%;
+  left: calc(var(--guide-x, 50%) - 5.8%);
   transform: rotate(7deg);
 }
 
 .pose-guide > .pose-arm-right {
-  left: 55.8%;
+  left: calc(var(--guide-x, 50%) + 5.8%);
   transform: rotate(-7deg);
 }
 
@@ -706,12 +706,12 @@ svg {
 }
 
 .pose-guide > .pose-leg-left {
-  left: 48%;
+  left: calc(var(--guide-x, 50%) - 2%);
   transform: rotate(2.5deg);
 }
 
 .pose-guide > .pose-leg-right {
-  left: 52%;
+  left: calc(var(--guide-x, 50%) + 2%);
   transform: rotate(-2.5deg);
 }
 
@@ -1612,7 +1612,7 @@ svg {
 .realism-tuning {
   display: grid;
   margin-top: 12px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 

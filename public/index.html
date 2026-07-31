@@ -527,6 +527,17 @@
             </button>
           </div>
           <div class="realism-tuning" aria-label="인물 합성 미세 조정">
+            <label class="position-tuning">
+              <span><strong>좌우 위치</strong><output id="personPositionValue">장면 맞춤</output></span>
+              <input
+                id="personPosition"
+                type="range"
+                min="-24"
+                max="24"
+                value="0"
+                aria-label="장면 기준 인물 좌우 위치"
+              />
+            </label>
             <label>
               <span><strong>인물 크기</strong><output id="personScaleValue">90%</output></span>
               <input id="personScale" type="range" min="72" max="116" value="90" />

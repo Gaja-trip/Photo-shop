@@ -48,6 +48,8 @@ const shootingGuideTitle = byId("shootingGuideTitle");
 const shootingGuideCamera = byId("shootingGuideCamera");
 const shootingGuideDistance = byId("shootingGuideDistance");
 const shootingGuidePose = byId("shootingGuidePose");
+const personPosition = byId("personPosition");
+const personPositionValue = byId("personPositionValue");
 
 const DEFAULT_BACKGROUND_PATH = "/backgrounds/paris-eiffel-closeup.webp";
 const DEFAULT_COMPANION_BACKGROUND_PATH =
@@ -134,6 +136,7 @@ const state = {
   lookBeforeCapture: null,
   hairStyle: "original",
   personScale: 0.9,
+  personOffsetX: 0,
   personOffsetY: 0,
   shadowStrength: 0.55,
   sourceType: null,
@@ -551,9 +554,17 @@ function getActiveFramingPreset() {
   const base =
     FRAMING_PRESETS[state.framingMode] || FRAMING_PRESETS.full;
   const companionScene = getActiveCompanionScene();
-  if (state.framingMode !== "close" || !companionScene) {
+  if (!companionScene) {
     return base;
   }
+
+  if (state.framingMode !== "close") {
+    return {
+      ...base,
+      personCenterX: companionScene.personCenterX,
+    };
+  }
+
   return {
     ...base,
     personHeight: companionScene.personHeight,
@@ -562,8 +573,13 @@ function getActiveFramingPreset() {
   };
 }
 
+function getEffectivePersonCenterX(framing = getActiveFramingPreset()) {
+  return clamp(framing.personCenterX + state.personOffsetX, 0.14, 0.86);
+}
+
 function getPersonPlacement(width, height, personBounds) {
   const framing = getActiveFramingPreset();
+  const personCenterX = getEffectivePersonCenterX(framing);
   if (personBounds) {
     const requestedHeight =
       height * framing.personHeight * (state.personScale / 0.9);
@@ -577,12 +593,12 @@ function getPersonPlacement(width, height, personBounds) {
     const groundY =
       height * framing.groundY + height * state.personOffsetY;
     return {
-      x: width * framing.personCenterX - personBounds.centerX * scale,
+      x: width * personCenterX - personBounds.centerX * scale,
       y: groundY - personBounds.bottom * scale,
       width: drawWidth,
       height: drawHeight,
       scale,
-      groundX: width * framing.personCenterX,
+      groundX: width * personCenterX,
       groundY,
       subjectWidth: personBounds.width * scale,
       subjectHeight: personBounds.height * scale,
@@ -593,7 +609,7 @@ function getPersonPlacement(width, height, personBounds) {
   const drawWidth = width * scale;
   const drawHeight = height * scale;
   return {
-    x: width * framing.personCenterX - drawWidth / 2,
+    x: width * personCenterX - drawWidth / 2,
     y:
       height * framing.groundY -
       drawHeight +
@@ -601,7 +617,7 @@ function getPersonPlacement(width, height, personBounds) {
     width: drawWidth,
     height: drawHeight,
     scale,
-    groundX: width * framing.personCenterX,
+    groundX: width * personCenterX,
     groundY: height * framing.groundY + height * state.personOffsetY,
     subjectWidth: width * 0.46 * scale,
     subjectHeight: height * 0.7 * scale,
@@ -2760,6 +2776,19 @@ function updateFramingModeUi() {
   const isTogether = state.sceneMode === "together";
   const companionScene = getActiveCompanionScene();
   const framing = getActiveFramingPreset();
+  const minimumHorizontalOffset = Math.max(
+    -0.24,
+    0.14 - framing.personCenterX,
+  );
+  const maximumHorizontalOffset = Math.min(
+    0.24,
+    0.86 - framing.personCenterX,
+  );
+  state.personOffsetX = clamp(
+    state.personOffsetX,
+    minimumHorizontalOffset,
+    maximumHorizontalOffset,
+  );
 
   document.querySelectorAll("[data-framing-mode]").forEach((button) => {
     const isSelected = button.dataset.framingMode === state.framingMode;
@@ -2770,8 +2799,18 @@ function updateFramingModeUi() {
   cameraStage.classList.toggle("framing-close", isClose);
   cameraStage.style.setProperty(
     "--guide-x",
-    `${Math.round(framing.personCenterX * 1000) / 10}%`,
+    `${Math.round(getEffectivePersonCenterX(framing) * 1000) / 10}%`,
   );
+  if (personPosition && personPositionValue) {
+    const horizontalValue = Math.round(state.personOffsetX * 100);
+    personPosition.min = String(Math.ceil(minimumHorizontalOffset * 100));
+    personPosition.max = String(Math.floor(maximumHorizontalOffset * 100));
+    personPosition.value = String(horizontalValue);
+    personPositionValue.textContent =
+      horizontalValue === 0
+        ? "장면 맞춤"
+        : `${horizontalValue < 0 ? "왼쪽" : "오른쪽"} ${Math.abs(horizontalValue)}%`;
+  }
   framingFeedbackTitle.textContent = isClose
     ? "근접 · 약 70cm"
     : "전신 · 1.5m부터";
@@ -2796,8 +2835,9 @@ function updateFramingModeUi() {
 
   if (isTogether) {
     emptyStateTitle.textContent = `${companionScene?.title || "동행인"} 옆 빈자리에 서세요`;
-    emptyStateDescription.textContent =
-      "카메라를 켠 뒤 약 70cm 거리에서 얼굴과 어깨를 점선 가이드에 맞춰주세요.";
+    emptyStateDescription.textContent = isClose
+      ? "카메라를 켠 뒤 약 70cm 거리에서 얼굴과 어깨를 점선 가이드에 맞춰주세요."
+      : "카메라를 켠 뒤 약 1.5m 거리에서 머리부터 발끝까지 점선 가이드에 맞춰주세요.";
   } else if (isClose) {
     emptyStateTitle.textContent = "파리를 배경으로 가까이 다가오세요";
     emptyStateDescription.textContent =
@@ -2852,6 +2892,11 @@ function updateSceneModeUi() {
 
 function applySceneMetadataForPath(path, { resetFraming = true } = {}) {
   const companionScene = COMPANION_SCENE_BY_PATH.get(path);
+  const nextSceneMode = companionScene ? "together" : "solo";
+  const nextSceneId = companionScene?.id || "";
+  const sceneChanged =
+    state.sceneMode !== nextSceneMode || state.sceneId !== nextSceneId;
+  if (sceneChanged) state.personOffsetX = 0;
   if (companionScene) {
     state.sceneMode = "together";
     state.sceneId = companionScene.id;
@@ -2983,6 +3028,11 @@ function bindRealismControls() {
   const personScale = byId("personScale");
   const personHeight = byId("personHeight");
   const shadowStrength = byId("shadowStrength");
+
+  personPosition.addEventListener("input", () => {
+    state.personOffsetX = Number(personPosition.value) / 100;
+    updateFramingModeUi();
+  });
 
   personScale.addEventListener("input", () => {
     state.personScale = Number(personScale.value) / 100;
